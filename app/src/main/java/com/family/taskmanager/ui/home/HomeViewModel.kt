@@ -30,14 +30,23 @@ class HomeViewModel @Inject constructor(
     private val familyRepository: FamilyRepository
 ) : ViewModel() {
 
-    private val _currentUser = MutableStateFlow<User?>(null)
-    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
+    private val _currentUserId = MutableStateFlow<String?>(null)
+
+    val currentUser: StateFlow<User?> = _currentUserId
+        .flatMapLatest { id ->
+            if (id != null) userRepository.getUser(id) else flowOf(null)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun setCurrentUser(user: User) {
-        _currentUser.value = user
+        _currentUserId.value = user.id
     }
 
-    val familyGroup: StateFlow<FamilyGroup?> = _currentUser
+    fun setCurrentUserId(userId: String?) {
+        _currentUserId.value = userId
+    }
+
+    val familyGroup: StateFlow<FamilyGroup?> = currentUser
         .flatMapLatest { user ->
             if (user != null && user.familyId.isNotEmpty()) {
                 familyRepository.getFamily(user.familyId)
@@ -45,7 +54,7 @@ class HomeViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val familyMembers: StateFlow<List<User>> = _currentUser
+    val familyMembers: StateFlow<List<User>> = currentUser
         .flatMapLatest { user ->
             if (user != null && user.familyId.isNotEmpty()) {
                 userRepository.getUsersByFamily(user.familyId)
@@ -53,7 +62,7 @@ class HomeViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val familyTasks: StateFlow<List<Task>> = _currentUser
+    val familyTasks: StateFlow<List<Task>> = currentUser
         .flatMapLatest { user ->
             if (user != null && user.familyId.isNotEmpty()) {
                 taskRepository.getTasksByFamily(user.familyId)
@@ -66,7 +75,7 @@ class HomeViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun toggleReaction(taskId: String, emoji: String) {
-        val user = _currentUser.value ?: return
+        val user = currentUser.value ?: return
         viewModelScope.launch {
             taskRepository.toggleReaction(taskId, user, emoji)
         }
@@ -80,7 +89,7 @@ class HomeViewModel @Inject constructor(
         points: Int,
         deadlineTimestamp: Long
     ) {
-        val user = _currentUser.value ?: return
+        val user = currentUser.value ?: return
         if (title.isBlank() || user.familyId.isEmpty()) return
 
         val newTask = Task(
@@ -102,8 +111,9 @@ class HomeViewModel @Inject constructor(
     }
 
     fun submitTaskProof(taskId: String, proofUrl: String, note: String) {
+        val user = currentUser.value
         viewModelScope.launch {
-            taskRepository.submitTaskProof(taskId, proofUrl, note)
+            taskRepository.submitTaskProof(taskId, proofUrl, note, user)
         }
     }
 

@@ -95,9 +95,9 @@ Lộ trình được thiết kế bám sát các tiêu chí đánh giá môn h�
 
 | STT | Thành viên | Vai trò | Chức năng phụ trách | Khối lượng & Tỷ lệ đóng góp |
 |:---:|:---|:---|:---|:---:|
-| 1 | **Lỗ Mạnh Trường** | **Nhóm trưởng** (Architecture & Task Lead) | • Chức năng 1: Phân chia công việc nhà (Tạo, giao việc)<br>• Chức năng 2: Theo dõi tiến độ & Vòng đời nhiệm vụ<br>• Chức năng 5: Danh sách cá nhân & Xác nhận hoàn thành kèm ảnh minh chứng | **33.3%** |
-| 2 | **Phạm Nguyễn Dũng** | **Thành viên** (Services & Gamification Lead) | • Chức năng 6: Lập kế hoạch theo tuần/ngày (Calendar view)<br>• Chức năng 3: Hệ thống nhắc nhở thông minh (Push Notification)<br>• Chức năng 4: Tích điểm & Đổi thưởng cho thành viên | **33.3%** |
-| 3 | **Bùi Trung Kiên** | **Thành viên** (UI/UX Lead & Analytics) | • Chức năng thiết lập: Khởi tạo & Quản lý nhóm gia đình (Invite Code)<br>• Chức năng 8: Lịch sử công việc & Báo cáo thống kê năng suất (Biểu đồ Canvas)<br>• Chức năng 9 & 7: Đa ngôn ngữ (i18n) & Tinh chỉnh UI/UX Glassmorphism | **33.3%** |
+| 1 | **Lỗ Mạnh Trường** | **Nhóm trưởng** (Architecture & Task Lead) | • Chức năng 1: Phân chia công việc nhà (Tạo, giao việc)<br>• Chức năng 2: Theo dõi tiến độ & Vòng đời nhiệm vụ<br>• Chức năng 5: Danh sách cá nhân & Xác nhận hoàn thành kèm ảnh minh chứng | **40%** |
+| 2 | **Phạm Nguyễn Dũng** | **Thành viên** (Services & Gamification Lead) | • Chức năng 6: Lập kế hoạch theo tuần/ngày (Calendar view)<br>• Chức năng 3: Hệ thống nhắc nhở thông minh (Push Notification)<br>• Chức năng 4: Tích điểm & Đổi thưởng cho thành viên | **30%** |
+| 3 | **Bùi Trung Kiên** | **Thành viên** (UI/UX Lead & Analytics) | • Chức năng thiết lập: Khởi tạo & Quản lý nhóm gia đình (Invite Code)<br>• Chức năng 8: Lịch sử công việc & Báo cáo thống kê năng suất (Biểu đồ Canvas)<br>• Chức năng 9 & 7: Đa ngôn ngữ (i18n) & Tinh chỉnh UI/UX Glassmorphism | **30%** |
 
 ---
 

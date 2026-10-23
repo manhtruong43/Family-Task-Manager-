@@ -494,7 +494,7 @@ Dự án này được tạo phục vụ mục đích học tập trong khuôn k
 
 <div align="center">
 
-Made with ❤️ by **Nhóm D22 — PTIT**  
+Made with ❤️ by **Nhóm D23 — PTIT**  
 **Lỗ Mạnh Trường • Phạm Nguyễn Dũng • Bùi Trung Kiên**
 
 _"Gia đình gắn kết, việc nhà có tổ chức"_

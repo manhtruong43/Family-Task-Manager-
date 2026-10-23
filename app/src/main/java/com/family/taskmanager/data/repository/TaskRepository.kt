@@ -72,20 +72,40 @@ class TaskRepository @Inject constructor(
         taskDao.updateTaskStatus(taskId, status)
     }
 
-    suspend fun submitTaskProof(taskId: String, proofUrl: String, note: String) {
-        taskDao.submitTaskProof(taskId, TaskStatus.PENDING_APPROVAL, proofUrl, note)
+    suspend fun submitTaskProof(taskId: String, proofUrl: String, note: String, user: User? = null) {
+        val task = taskDao.getTaskById(taskId)
+        if (task != null) {
+            val updatedTask = task.copy(
+                status = TaskStatus.PENDING_APPROVAL,
+                proofImageUrl = proofUrl,
+                proofNote = note,
+                assignedToUserId = if (task.assignedToUserId.isEmpty() && user != null) user.id else task.assignedToUserId,
+                assignedToUserName = if ((task.assignedToUserName.isEmpty() || task.assignedToUserName == "Tất cả") && user != null) user.name else task.assignedToUserName
+            )
+            taskDao.updateTask(updatedTask)
+        } else {
+            taskDao.submitTaskProof(taskId, TaskStatus.PENDING_APPROVAL, proofUrl, note)
+        }
     }
 
     suspend fun approveTask(task: Task) {
+        val currentTask = taskDao.getTaskById(task.id) ?: task
+        // Tránh cộng điểm lặp lại nếu task đã được duyệt trước đó
+        if (currentTask.status == TaskStatus.COMPLETED) {
+            return
+        }
         taskDao.updateTaskStatus(task.id, TaskStatus.COMPLETED)
-        if (task.assignedToUserId.isNotEmpty() && task.points > 0) {
-            userDao.addPoints(task.assignedToUserId, task.points)
+
+        // Xác định chính xác thành viên nhận điểm thưởng
+        val targetUserId = currentTask.assignedToUserId.ifEmpty { task.assignedToUserId }
+        if (targetUserId.isNotEmpty() && currentTask.points > 0) {
+            userDao.addPoints(targetUserId, currentTask.points)
             val notifTitle = "✅ Nhiệm vụ được duyệt!"
-            val notifMessage = "Chúc mừng! Bạn nhận +${task.points}⭐ điểm cho '${task.title}'"
+            val notifMessage = "Chúc mừng! Bạn nhận +${currentTask.points}⭐ điểm cho '${currentTask.title}'"
             notificationDao.insertNotification(
                 NotificationItem(
                     id = UUID.randomUUID().toString(),
-                    userId = task.assignedToUserId,
+                    userId = targetUserId,
                     title = notifTitle,
                     message = notifMessage
                 )

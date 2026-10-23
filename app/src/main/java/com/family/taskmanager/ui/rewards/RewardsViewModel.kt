@@ -18,19 +18,31 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
+import com.family.taskmanager.data.repository.UserRepository
+
 @HiltViewModel
 class RewardsViewModel @Inject constructor(
-    private val rewardRepository: RewardRepository
+    private val rewardRepository: RewardRepository,
+    private val userRepository: UserRepository
 ) : ViewModel() {
 
-    private val _currentUser = MutableStateFlow<User?>(null)
-    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
+    private val _currentUserId = MutableStateFlow<String?>(null)
+
+    val currentUser: StateFlow<User?> = _currentUserId
+        .flatMapLatest { id ->
+            if (id != null) userRepository.getUser(id) else flowOf(null)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun setCurrentUser(user: User) {
-        _currentUser.value = user
+        _currentUserId.value = user.id
     }
 
-    val rewards: StateFlow<List<Reward>> = _currentUser
+    fun setCurrentUserId(userId: String?) {
+        _currentUserId.value = userId
+    }
+
+    val rewards: StateFlow<List<Reward>> = currentUser
         .flatMapLatest { user ->
             if (user != null && user.familyId.isNotEmpty()) {
                 rewardRepository.getRewardsByFamily(user.familyId)
@@ -38,7 +50,7 @@ class RewardsViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val redemptions: StateFlow<List<RewardRedemption>> = _currentUser
+    val redemptions: StateFlow<List<RewardRedemption>> = currentUser
         .flatMapLatest { user ->
             if (user != null && user.familyId.isNotEmpty()) {
                 rewardRepository.getRedemptionsByFamily(user.familyId)
@@ -47,7 +59,7 @@ class RewardsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun createReward(title: String, description: String, pointsRequired: Int) {
-        val user = _currentUser.value ?: return
+        val user = currentUser.value ?: return
         if (title.isBlank() || pointsRequired <= 0) return
 
         val reward = Reward(
@@ -63,7 +75,7 @@ class RewardsViewModel @Inject constructor(
     }
 
     fun redeemReward(reward: Reward, onResult: (Boolean) -> Unit) {
-        val user = _currentUser.value ?: return
+        val user = currentUser.value ?: return
         viewModelScope.launch {
             val success = rewardRepository.redeemReward(reward, user)
             onResult(success)

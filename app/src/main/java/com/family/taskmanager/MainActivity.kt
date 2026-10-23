@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -56,7 +59,19 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun FamilyTaskManagerApp() {
     val navController = rememberNavController()
-    var loggedInUser by remember { mutableStateOf<User?>(null) }
+    // Lưu userId qua rememberSaveable để không bị mất khi xoay màn hình (orientation change)
+    var loggedInUserId by rememberSaveable { mutableStateOf<String?>(null) }
+    
+    // Sử dụng instance HomeViewModel chung để quản lý trạng thái phiên đăng nhập nhất quán
+    val homeViewModel: HomeViewModel = hiltViewModel()
+    val currentUser by homeViewModel.currentUser.collectAsState()
+
+    // Đồng bộ userId vào ViewModel khi khởi tạo hoặc sau khi xoay màn hình
+    LaunchedEffect(loggedInUserId) {
+        if (loggedInUserId != null) {
+            homeViewModel.setCurrentUserId(loggedInUserId)
+        }
+    }
 
     NavHost(
         navController = navController,
@@ -67,7 +82,8 @@ fun FamilyTaskManagerApp() {
             LoginScreen(
                 viewModel = loginViewModel,
                 onLoginSuccess = { user ->
-                    loggedInUser = user
+                    loggedInUserId = user.id
+                    homeViewModel.setCurrentUser(user)
                     if (user.familyId.isEmpty()) {
                         navController.navigate(Screen.FamilySetup.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
@@ -83,13 +99,12 @@ fun FamilyTaskManagerApp() {
 
         composable(Screen.FamilySetup.route) {
             val familyViewModel: FamilyViewModel = hiltViewModel()
-            val user = loggedInUser
+            val user = currentUser
             if (user != null) {
                 FamilySetupScreen(
                     currentUser = user,
                     viewModel = familyViewModel,
-                    onSuccess = { familyId ->
-                        loggedInUser = loggedInUser?.copy(familyId = familyId)
+                    onSuccess = { _ ->
                         navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.FamilySetup.route) { inclusive = true }
                         }
@@ -99,9 +114,6 @@ fun FamilyTaskManagerApp() {
         }
 
         composable(Screen.Home.route) {
-            val homeViewModel: HomeViewModel = hiltViewModel()
-            loggedInUser?.let { homeViewModel.setCurrentUser(it) }
-
             HomeScreen(
                 viewModel = homeViewModel,
                 onCreateTaskClick = { navController.navigate(Screen.CreateTask.route) },
@@ -114,9 +126,6 @@ fun FamilyTaskManagerApp() {
         }
 
         composable(Screen.CreateTask.route) {
-            val homeViewModel: HomeViewModel = hiltViewModel()
-            loggedInUser?.let { homeViewModel.setCurrentUser(it) }
-
             CreateEditTaskScreen(
                 viewModel = homeViewModel,
                 onBack = { navController.popBackStack() }
@@ -128,8 +137,6 @@ fun FamilyTaskManagerApp() {
             arguments = listOf(navArgument("taskId") { type = NavType.StringType })
         ) { backStackEntry ->
             val taskId = backStackEntry.arguments?.getString("taskId") ?: ""
-            val homeViewModel: HomeViewModel = hiltViewModel()
-            loggedInUser?.let { homeViewModel.setCurrentUser(it) }
 
             TaskDetailScreen(
                 taskId = taskId,
@@ -140,7 +147,7 @@ fun FamilyTaskManagerApp() {
 
         composable(Screen.Rewards.route) {
             val rewardsViewModel: RewardsViewModel = hiltViewModel()
-            loggedInUser?.let { rewardsViewModel.setCurrentUser(it) }
+            currentUser?.let { rewardsViewModel.setCurrentUser(it) }
 
             RewardsScreen(
                 viewModel = rewardsViewModel,
@@ -149,9 +156,6 @@ fun FamilyTaskManagerApp() {
         }
 
         composable(Screen.Calendar.route) {
-            val homeViewModel: HomeViewModel = hiltViewModel()
-            loggedInUser?.let { homeViewModel.setCurrentUser(it) }
-
             CalendarScreen(
                 viewModel = homeViewModel,
                 onBack = { navController.popBackStack() }
@@ -159,9 +163,6 @@ fun FamilyTaskManagerApp() {
         }
 
         composable(Screen.Statistics.route) {
-            val homeViewModel: HomeViewModel = hiltViewModel()
-            loggedInUser?.let { homeViewModel.setCurrentUser(it) }
-
             StatisticsScreen(
                 viewModel = homeViewModel,
                 onBack = { navController.popBackStack() }
@@ -169,14 +170,12 @@ fun FamilyTaskManagerApp() {
         }
 
         composable(Screen.Settings.route) {
-            val homeViewModel: HomeViewModel = hiltViewModel()
-            loggedInUser?.let { homeViewModel.setCurrentUser(it) }
-
             SettingsScreen(
                 viewModel = homeViewModel,
                 onBack = { navController.popBackStack() },
                 onLogout = {
-                    loggedInUser = null
+                    loggedInUserId = null
+                    homeViewModel.setCurrentUserId(null)
                     navController.navigate(Screen.Login.route) {
                         popUpTo(0) { inclusive = true }
                     }
