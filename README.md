@@ -357,9 +357,9 @@ app/src/main/res/
 
 | STT | Thành viên | Vai trò chính | Chức năng phụ trách (Mỗi người 3 CN) | Công việc chung nhóm | Tỷ lệ đóng góp |
 |:---:|:---|:---|:---|:---|:---:|
-| 1 | **Lỗ Mạnh Trường** | **Nhóm trưởng** (Architecture & Task Lead) | 1. Đăng ký / Đăng nhập & Xác thực<br>2. Phân chia & Giao nhiệm vụ<br>3. Theo dõi tiến độ & Duyệt việc kèm ảnh | Khởi tạo khung MVVM, cấu hình Hilt & Room, quản lý Git/GitHub, ghép mã nguồn | **33.3%** |
-| 2 | **Phạm Nguyễn Dũng** | **Thành viên** (Services & Gamification Lead) | 4. Lập kế hoạch theo tuần/ngày<br>5. Hệ thống nhắc nhở (Push Notification)<br>6. Tích điểm & Phần thưởng gia đình | Tích hợp Android System Services, quản lý thông báo, xử lý bất đồng bộ Coroutines/Flow | **33.3%** |
-| 3 | **Bùi Trung Kiên** | **Thành viên** (UI/UX Lead & Analytics) | 7. Thiết lập nhóm & Quản lý gia đình<br>8. Thống kê năng suất & Vẽ biểu đồ Canvas<br>9. Đa ngôn ngữ (i18n) & Hệ thống UI Glassmorphism | Thiết kế Design System, Master Layout, Glassmorphism tokens, điều hướng Navigation Compose | **33.3%** |
+| 1 | **Lỗ Mạnh Trường** | **Nhóm trưởng** (Architecture & Task Lead) | 1. Đăng ký / Đăng nhập & Xác thực<br>2. Phân chia & Giao nhiệm vụ<br>3. Theo dõi tiến độ & Duyệt việc kèm ảnh | Khởi tạo khung MVVM, cấu hình Hilt & Room, quản lý Git/GitHub, ghép mã nguồn | **40%** |
+| 2 | **Phạm Nguyễn Dũng** | **Thành viên** (Services & Gamification Lead) | 4. Lập kế hoạch theo tuần/ngày<br>5. Hệ thống nhắc nhở (Push Notification)<br>6. Tích điểm & Phần thưởng gia đình | Tích hợp Android System Services, quản lý thông báo, xử lý bất đồng bộ Coroutines/Flow | **30%** |
+| 3 | **Bùi Trung Kiên** | **Thành viên** (UI/UX Lead & Analytics) | 7. Thiết lập nhóm & Quản lý gia đình<br>8. Thống kê năng suất & Vẽ biểu đồ Canvas<br>9. Đa ngôn ngữ (i18n) & Hệ thống UI Glassmorphism | Thiết kế Design System, Master Layout, Glassmorphism tokens, điều hướng Navigation Compose | **30%** |
 
 ---
 

@@ -33,6 +33,9 @@ interface TaskDao {
     @Query("UPDATE tasks SET status = :status WHERE id = :taskId")
     suspend fun updateTaskStatus(taskId: String, status: TaskStatus)
 
+    @Query("UPDATE tasks SET status = :newStatus WHERE id = :taskId AND status = :expectedStatus")
+    suspend fun updateTaskStatusConditional(taskId: String, expectedStatus: TaskStatus, newStatus: TaskStatus): Int
+
     @Query("UPDATE tasks SET status = :status, proofImageUrl = :proofUrl, proofNote = :note WHERE id = :taskId")
     suspend fun submitTaskProof(taskId: String, status: TaskStatus, proofUrl: String, note: String)
 }

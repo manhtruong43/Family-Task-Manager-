@@ -68,4 +68,57 @@
     <string name="error_empty_family_name">Vui lòng nhập tên gia đình</string>
     <string name="error_invalid_code">Mã mời không hợp lệ</string>
     <string name="error_general">Đã có lỗi xảy ra, vui lòng thử lại</string>
+
+    <!-- Create / Edit Task Screen -->
+    <string name="create_task_title">Tạo Nhiệm vụ Mới</string>
+    <string name="btn_back">Trở về</string>
+    <string name="task_title_hint">Tên nhiệm vụ (vd: Dọn phòng ngủ)</string>
+    <string name="task_description_hint">Mô tả công việc chi tiết</string>
+    <string name="task_assign_to">Phân công cho thành viên:</string>
+    <string name="task_assign_all">Tất cả thành viên</string>
+    <string name="role_parent">Bố/Mẹ</string>
+    <string name="role_child">Con</string>
+    <string name="task_priority_label">Mức độ ưu tiên:</string>
+    <string name="priority_low">Thấp</string>
+    <string name="priority_medium">Trung bình</string>
+    <string name="priority_high">Cao</string>
+    <string name="task_points_hint">Điểm thưởng khi hoàn thành (vd: 15)</string>
+    <string name="task_deadline_label">Hạn chót hoàn thành:</string>
+    <string name="select_deadline_date">Chọn ngày hạn chót</string>
+    <string name="task_deadline_subtext">Bấm để chọn ngày hết hạn (23:59)</string>
+    <string name="btn_change">Thay đổi</string>
+    <string name="btn_create_and_assign">Tạo &amp; Giao Nhiệm vụ</string>
+
+    <!-- Task Detail Screen -->
+    <string name="task_detail_title">Chi tiết Nhiệm vụ</string>
+    <string name="task_not_found">Không tìm thấy nhiệm vụ</string>
+    <string name="task_detail_assignee">👤 Người thực hiện: %1$s</string>
+    <string name="task_detail_priority">⚡ Mức độ ưu tiên: %1$s</string>
+    <string name="task_detail_points">🎁 Điểm thưởng: +%1$d điểm</string>
+    <string name="task_reactions_label">Cảm xúc &amp; Tương tác:</string>
+    <string name="task_reacted_by">Đã thả cảm xúc: %1$s</string>
+    <string name="task_proof_attached">📸 Ảnh Minh Chứng Đã Đính Kèm (%1$d ảnh - Bấm để phóng to):</string>
+    <string name="cd_proof_image">Ảnh minh chứng %1$d</string>
+    <string name="task_proof_note">💬 Ghi chú: %1$s</string>
+    <string name="task_review_section">Duyệt việc cho thành viên:</string>
+    <string name="btn_approve_award">Duyệt &amp; Cộng Point</string>
+    <string name="btn_reject">Từ chối</string>
+    <string name="cd_start_task">Bắt đầu làm</string>
+    <string name="btn_start_task">Bắt đầu làm (Chuyển sang Đang làm)</string>
+    <string name="btn_redo_task">Làm lại (Chuyển sang Đang làm)</string>
+    <string name="task_in_progress_banner">⚡ Đang trong quá trình thực hiện</string>
+    <string name="btn_reset_todo">Đặt lại Chưa làm</string>
+    <string name="proof_section_title">📸 Báo cáo &amp; Upload Nhiều Ảnh Minh Chứng:</string>
+    <string name="cd_pick_images">Chọn nhiều ảnh</string>
+    <string name="btn_pick_images">📸 Chọn nhiều ảnh minh chứng từ thư viện</string>
+    <string name="btn_pick_images_selected">📸 Đã chọn %1$d ảnh (+ Thêm ảnh khác)</string>
+    <string name="selected_images_hint">Ảnh đã chọn (Bấm ❌ để xóa hoặc bấm vào ảnh để phóng to):</string>
+    <string name="cd_selected_image">Ảnh chọn %1$d</string>
+    <string name="cd_remove_image">Xóa ảnh</string>
+    <string name="proof_note_hint">Ghi chú minh chứng (vd: Đã lau dọn sạch sẽ)</string>
+    <string name="btn_submit_proof">Gửi Báo Cáo + %1$d Ảnh Minh Chứng</string>
+    <string name="cd_close">Đóng</string>
+    <string name="cd_zoomed_image">Ảnh phóng to</string>
+    <string name="cd_prev_image">Ảnh trước</string>
+    <string name="cd_next_image">Ảnh tiếp</string>
 </resources>

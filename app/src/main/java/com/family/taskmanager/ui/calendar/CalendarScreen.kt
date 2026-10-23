@@ -53,6 +53,7 @@ import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.ui.home.HomeViewModel
+import com.family.taskmanager.ui.task.assigneeDisplayName
 import com.family.taskmanager.ui.theme.GlassCard
 import com.family.taskmanager.ui.theme.GlassGradientBackground
 import java.text.SimpleDateFormat
@@ -398,14 +399,12 @@ fun CalendarTaskCard(task: Task) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (task.assignedToUserName.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = "👤 ${task.assignedToUserName}  •  ⭐ ${task.points} điểm",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 12.sp
-                    )
-                }
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = "👤 ${assigneeDisplayName(task)}  •  ⭐ ${task.points} điểm",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp
+                )
                 if (task.deadlineTimestamp > 0L) {
                     val deadlineText = SimpleDateFormat("HH:mm", Locale.getDefault())
                         .format(Date(task.deadlineTimestamp))

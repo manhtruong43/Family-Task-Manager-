@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.family.taskmanager.data.model.User
+import com.family.taskmanager.data.model.UserRole
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -18,6 +19,9 @@ interface UserDao {
 
     @Query("SELECT * FROM users WHERE familyId = :familyId")
     fun getUsersByFamily(familyId: String): Flow<List<User>>
+
+    @Query("SELECT * FROM users WHERE familyId = :familyId AND role = :role")
+    suspend fun getUsersByRoleSync(familyId: String, role: UserRole): List<User>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUser(user: User)

@@ -28,6 +28,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +40,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -47,18 +50,23 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.rememberAsyncImagePainter
+import com.family.taskmanager.R
+import com.family.taskmanager.data.model.Task
+import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.ui.home.HomeViewModel
@@ -78,7 +86,7 @@ fun TaskDetailScreen(
     val currentUser by viewModel.currentUser.collectAsState()
     val reactions by viewModel.getTaskReactions(taskId).collectAsState()
 
-    var proofNote by remember { mutableStateOf("") }
+    var proofNote by rememberSaveable { mutableStateOf("") }
     val selectedImageUris = remember { mutableStateListOf<Uri>() }
 
     // Fullscreen photo viewer state
@@ -107,10 +115,10 @@ fun TaskDetailScreen(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("Chi tiết Nhiệm vụ", color = Color.White) },
+                    title = { Text(stringResource(R.string.task_detail_title), color = Color.White) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Trở về", tint = Color.White)
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.btn_back), tint = Color.White)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -124,7 +132,7 @@ fun TaskDetailScreen(
                         .padding(paddingValues),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Không tìm thấy nhiệm vụ", color = Color.White)
+                    Text(stringResource(R.string.task_not_found), color = Color.White)
                 }
             } else {
                 Column(
@@ -159,13 +167,13 @@ fun TaskDetailScreen(
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
 
-                            Text("👤 Người thực hiện: ${if (task.assignedToUserName.isEmpty()) "Tất cả" else task.assignedToUserName}", color = Color.White)
-                            Text("⚡ Mức độ ưu tiên: ${task.priority.name}", color = Color.White)
-                            Text("🎁 Điểm thưởng: +${task.points} điểm", color = Color(0xFFFBBF24), fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.task_detail_assignee, assigneeDisplayName(task)), color = Color.White)
+                            Text(stringResource(R.string.task_detail_priority, priorityLabel(task.priority)), color = Color.White)
+                            Text(stringResource(R.string.task_detail_points, task.points), color = Color(0xFFFBBF24), fontWeight = FontWeight.Bold)
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            Text("Cảm xúc & Tương tác:", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.task_reactions_label), color = Color.White, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Row(
@@ -191,7 +199,10 @@ fun TaskDetailScreen(
                             if (reactions.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "Đã thả cảm xúc: " + reactions.joinToString(", ") { "${it.userName} (${it.emoji})" },
+                                    text = stringResource(
+                                        R.string.task_reacted_by,
+                                        reactions.joinToString(", ") { "${it.userName} (${it.emoji})" }
+                                    ),
                                     fontSize = 12.sp,
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
@@ -207,7 +218,7 @@ fun TaskDetailScreen(
                         GlassCard(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    text = "📸 Ảnh Minh Chứng Đã Đính Kèm (${uploadedImages.size} ảnh - Bấm để phóng to):",
+                                    text = stringResource(R.string.task_proof_attached, uploadedImages.size),
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp
@@ -229,7 +240,7 @@ fun TaskDetailScreen(
                                         ) {
                                             Image(
                                                 painter = rememberAsyncImagePainter(imageUrl),
-                                                contentDescription = "Ảnh minh chứng $index",
+                                                contentDescription = stringResource(R.string.cd_proof_image, index + 1),
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxSize()
                                             )
@@ -239,7 +250,7 @@ fun TaskDetailScreen(
 
                                 if (task.proofNote.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(10.dp))
-                                    Text("💬 Ghi chú: ${task.proofNote}", color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+                                    Text(stringResource(R.string.task_proof_note, task.proofNote), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
                                 }
                             }
                         }
@@ -248,7 +259,7 @@ fun TaskDetailScreen(
 
                     // Admin duyệt việc khi có báo cáo
                     if (currentUser?.role == UserRole.ADMIN && task.status == TaskStatus.PENDING_APPROVAL) {
-                        Text("Duyệt việc cho thành viên:", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.task_review_section), color = Color.White, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Row(modifier = Modifier.fillMaxWidth()) {
@@ -262,7 +273,7 @@ fun TaskDetailScreen(
                                     .weight(1f)
                                     .height(50.dp)
                             ) {
-                                Text("Duyệt & Cộng Point", fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.btn_approve_award), fontWeight = FontWeight.Bold)
                             }
 
                             Spacer(modifier = Modifier.padding(horizontal = 8.dp))
@@ -277,11 +288,72 @@ fun TaskDetailScreen(
                                     .weight(1f)
                                     .height(50.dp)
                             ) {
-                                Text("Từ chối")
+                                Text(stringResource(R.string.btn_reject))
                             }
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))
+                    }
+
+                    // Nút chuyển trạng thái sang "Đang làm" (IN_PROGRESS)
+                    if (task.status == TaskStatus.TODO || task.status == TaskStatus.REJECTED) {
+                        Button(
+                            onClick = {
+                                viewModel.startTask(task.id)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = stringResource(R.string.cd_start_task),
+                                tint = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(
+                                    if (task.status == TaskStatus.REJECTED) R.string.btn_redo_task else R.string.btn_start_task
+                                ),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    } else if (task.status == TaskStatus.IN_PROGRESS) {
+                        GlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.HourglassEmpty,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFBBF24),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = stringResource(R.string.task_in_progress_banner),
+                                        color = Color(0xFFFBBF24),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { viewModel.resetTaskToTodo(task.id) }
+                                ) {
+                                    Text(stringResource(R.string.btn_reset_todo), fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f))
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
 
                     // KHU VỰC BÁO CÁO & UPLOAD NHIỀU ẢNH MINH CHỨNG
@@ -289,7 +361,7 @@ fun TaskDetailScreen(
                         GlassCard(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    text = "📸 Báo cáo & Upload Nhiều Ảnh Minh Chứng:",
+                                    text = stringResource(R.string.proof_section_title),
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp
@@ -301,10 +373,14 @@ fun TaskDetailScreen(
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Chọn nhiều ảnh", tint = Color.White)
+                                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = stringResource(R.string.cd_pick_images), tint = Color.White)
                                     Spacer(modifier = Modifier.size(8.dp))
                                     Text(
-                                        text = if (selectedImageUris.isNotEmpty()) "📸 Đã chọn ${selectedImageUris.size} ảnh (+ Thêm ảnh khác)" else "📸 Chọn nhiều ảnh minh chứng từ thư viện",
+                                        text = if (selectedImageUris.isNotEmpty()) {
+                                            stringResource(R.string.btn_pick_images_selected, selectedImageUris.size)
+                                        } else {
+                                            stringResource(R.string.btn_pick_images)
+                                        },
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -313,7 +389,7 @@ fun TaskDetailScreen(
                                 // Danh sách các ảnh đã chọn kèm nút Xóa ❌
                                 if (selectedImageUris.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    Text("Ảnh đã chọn (Bấm ❌ để xóa hoặc bấm vào ảnh để phóng to):", fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
+                                    Text(stringResource(R.string.selected_images_hint), fontSize = 12.sp, color = Color.White.copy(alpha = 0.8f))
                                     Spacer(modifier = Modifier.height(8.dp))
 
                                     LazyRow(
@@ -325,7 +401,7 @@ fun TaskDetailScreen(
                                             ) {
                                                 Image(
                                                     painter = rememberAsyncImagePainter(uri),
-                                                    contentDescription = "Ảnh chọn $index",
+                                                    contentDescription = stringResource(R.string.cd_selected_image, index + 1),
                                                     contentScale = ContentScale.Crop,
                                                     modifier = Modifier
                                                         .fillMaxSize()
@@ -349,7 +425,7 @@ fun TaskDetailScreen(
                                                 ) {
                                                     Icon(
                                                         Icons.Default.Close,
-                                                        contentDescription = "Xóa ảnh",
+                                                        contentDescription = stringResource(R.string.cd_remove_image),
                                                         tint = Color.White,
                                                         modifier = Modifier.size(16.dp)
                                                     )
@@ -364,7 +440,7 @@ fun TaskDetailScreen(
                                 OutlinedTextField(
                                     value = proofNote,
                                     onValueChange = { proofNote = it },
-                                    label = { Text("Ghi chú minh chứng (vd: Đã lau dọn sạch sẽ)", color = Color.White.copy(alpha = 0.8f)) },
+                                    label = { Text(stringResource(R.string.proof_note_hint), color = Color.White.copy(alpha = 0.8f)) },
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = Color.White,
                                         unfocusedTextColor = Color.White,
@@ -391,7 +467,7 @@ fun TaskDetailScreen(
                                         .fillMaxWidth()
                                         .height(50.dp)
                                 ) {
-                                    Text("Gửi Báo Cáo + ${selectedImageUris.size} Ảnh Minh Chứng", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.btn_submit_proof, selectedImageUris.size), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -430,7 +506,7 @@ fun GlassPhotoViewerDialog(
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.2f))
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Đóng", tint = Color.White)
+                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cd_close), tint = Color.White)
             }
 
             // Tiêu đề đếm số trang ảnh (vd: 2 / 5)
@@ -448,7 +524,7 @@ fun GlassPhotoViewerDialog(
             if (currentIndex in imageUrls.indices) {
                 Image(
                     painter = rememberAsyncImagePainter(imageUrls[currentIndex]),
-                    contentDescription = "Ảnh phóng to",
+                    contentDescription = stringResource(R.string.cd_zoomed_image),
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .fillMaxSize()
@@ -467,7 +543,7 @@ fun GlassPhotoViewerDialog(
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.25f))
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Ảnh trước", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_prev_image), tint = Color.White)
                 }
             }
 
@@ -482,7 +558,7 @@ fun GlassPhotoViewerDialog(
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.25f))
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Ảnh tiếp", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(R.string.cd_next_image), tint = Color.White)
                 }
             }
         }
@@ -491,15 +567,36 @@ fun GlassPhotoViewerDialog(
 
 @Composable
 fun StatusBadge(status: TaskStatus) {
-    val (text, textColor) = when (status) {
-        TaskStatus.TODO -> Pair("Chưa làm", Color.White)
-        TaskStatus.IN_PROGRESS -> Pair("Đang làm", Color(0xFFFBBF24))
-        TaskStatus.PENDING_APPROVAL -> Pair("Chờ duyệt", Color(0xFF38BDF8))
-        TaskStatus.COMPLETED -> Pair("Hoàn thành", Color(0xFF4ADE80))
-        TaskStatus.REJECTED -> Pair("Làm lại", Color(0xFFF87171))
+    val (textRes, textColor) = when (status) {
+        TaskStatus.TODO -> Pair(R.string.task_status_todo, Color.White)
+        TaskStatus.IN_PROGRESS -> Pair(R.string.task_status_in_progress, Color(0xFFFBBF24))
+        TaskStatus.PENDING_APPROVAL -> Pair(R.string.task_status_pending, Color(0xFF38BDF8))
+        TaskStatus.COMPLETED -> Pair(R.string.task_status_completed, Color(0xFF4ADE80))
+        TaskStatus.REJECTED -> Pair(R.string.task_status_rejected, Color(0xFFF87171))
     }
 
     GlassBox(cornerRadius = 8.dp) {
-        Text(text = text, color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+        Text(text = stringResource(textRes), color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
 }
+
+/**
+ * Tên người thực hiện để hiển thị. Task giao cho "Tất cả" được nhận diện bằng assignedToUserId rỗng
+ * (kể cả dữ liệu cũ có assignedToUserName = "Tất cả"), nhãn hiển thị lấy từ string resource.
+ */
+@Composable
+fun assigneeDisplayName(task: Task): String =
+    if (task.assignedToUserId.isEmpty() || task.assignedToUserName.isEmpty()) {
+        stringResource(R.string.task_assign_all)
+    } else {
+        task.assignedToUserName
+    }
+
+@Composable
+fun priorityLabel(priority: TaskPriority): String = stringResource(
+    when (priority) {
+        TaskPriority.LOW -> R.string.priority_low
+        TaskPriority.MEDIUM -> R.string.priority_medium
+        TaskPriority.HIGH -> R.string.priority_high
+    }
+)

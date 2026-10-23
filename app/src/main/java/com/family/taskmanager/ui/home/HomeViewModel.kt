@@ -98,7 +98,8 @@ class HomeViewModel @Inject constructor(
             description = description.trim(),
             familyId = user.familyId,
             assignedToUserId = assignedToUser?.id ?: "",
-            assignedToUserName = assignedToUser?.name ?: "Tất cả",
+            // Để trống khi giao cho tất cả – UI tự hiển thị nhãn đa ngôn ngữ (R.string.task_assign_all)
+            assignedToUserName = assignedToUser?.name ?: "",
             createdByUserId = user.id,
             priority = priority,
             status = TaskStatus.TODO,
@@ -129,9 +130,17 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun updateTaskStatus(taskId: String, status: TaskStatus) {
+    /** Chuyển sang "Đang làm" (chỉ có hiệu lực khi task đang TODO / REJECTED). */
+    fun startTask(taskId: String) {
         viewModelScope.launch {
-            taskRepository.updateTaskStatus(taskId, status)
+            taskRepository.startTask(taskId)
+        }
+    }
+
+    /** Đặt lại về "Chưa làm" (chỉ có hiệu lực khi task đang IN_PROGRESS). */
+    fun resetTaskToTodo(taskId: String) {
+        viewModelScope.launch {
+            taskRepository.resetTaskToTodo(taskId)
         }
     }
 }

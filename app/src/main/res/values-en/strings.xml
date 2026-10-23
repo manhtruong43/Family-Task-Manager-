@@ -68,4 +68,57 @@
     <string name="error_empty_family_name">Please enter family name</string>
     <string name="error_invalid_code">Invalid invite code</string>
     <string name="error_general">An error occurred, please try again</string>
+
+    <!-- Create / Edit Task Screen -->
+    <string name="create_task_title">Create New Task</string>
+    <string name="btn_back">Back</string>
+    <string name="task_title_hint">Task name (e.g. Clean bedroom)</string>
+    <string name="task_description_hint">Detailed description</string>
+    <string name="task_assign_to">Assign to family member:</string>
+    <string name="task_assign_all">All members</string>
+    <string name="role_parent">Parent</string>
+    <string name="role_child">Child</string>
+    <string name="task_priority_label">Priority level:</string>
+    <string name="priority_low">Low</string>
+    <string name="priority_medium">Medium</string>
+    <string name="priority_high">High</string>
+    <string name="task_points_hint">Reward points on completion (e.g. 15)</string>
+    <string name="task_deadline_label">Deadline:</string>
+    <string name="select_deadline_date">Select deadline date</string>
+    <string name="task_deadline_subtext">Tap to select deadline date (23:59)</string>
+    <string name="btn_change">Change</string>
+    <string name="btn_create_and_assign">Create &amp; Assign Task</string>
+
+    <!-- Task Detail Screen -->
+    <string name="task_detail_title">Task Details</string>
+    <string name="task_not_found">Task not found</string>
+    <string name="task_detail_assignee">👤 Assignee: %1$s</string>
+    <string name="task_detail_priority">⚡ Priority: %1$s</string>
+    <string name="task_detail_points">🎁 Reward: +%1$d points</string>
+    <string name="task_reactions_label">Reactions:</string>
+    <string name="task_reacted_by">Reacted by: %1$s</string>
+    <string name="task_proof_attached">📸 Attached proof photos (%1$d - tap to enlarge):</string>
+    <string name="cd_proof_image">Proof photo %1$d</string>
+    <string name="task_proof_note">💬 Note: %1$s</string>
+    <string name="task_review_section">Review submitted work:</string>
+    <string name="btn_approve_award">Approve &amp; Award Points</string>
+    <string name="btn_reject">Reject</string>
+    <string name="cd_start_task">Start task</string>
+    <string name="btn_start_task">Start (Move to In Progress)</string>
+    <string name="btn_redo_task">Redo (Move to In Progress)</string>
+    <string name="task_in_progress_banner">⚡ In progress</string>
+    <string name="btn_reset_todo">Reset to To Do</string>
+    <string name="proof_section_title">📸 Report &amp; upload proof photos:</string>
+    <string name="cd_pick_images">Pick photos</string>
+    <string name="btn_pick_images">📸 Pick proof photos from gallery</string>
+    <string name="btn_pick_images_selected">📸 %1$d photos selected (+ Add more)</string>
+    <string name="selected_images_hint">Selected photos (tap ❌ to remove, tap a photo to enlarge):</string>
+    <string name="cd_selected_image">Selected photo %1$d</string>
+    <string name="cd_remove_image">Remove photo</string>
+    <string name="proof_note_hint">Proof note (e.g. Cleaned everything)</string>
+    <string name="btn_submit_proof">Submit report + %1$d proof photos</string>
+    <string name="cd_close">Close</string>
+    <string name="cd_zoomed_image">Enlarged photo</string>
+    <string name="cd_prev_image">Previous photo</string>
+    <string name="cd_next_image">Next photo</string>
 </resources>

@@ -66,6 +66,7 @@ import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.ui.task.StatusBadge
+import com.family.taskmanager.ui.task.assigneeDisplayName
 import com.family.taskmanager.ui.theme.GlassBox
 import com.family.taskmanager.ui.theme.GlassCard
 import com.family.taskmanager.ui.theme.GlassGradientBackground
@@ -827,7 +828,7 @@ fun GlassTaskItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "👤 ${if (task.assignedToUserName.isEmpty()) "Tất cả" else task.assignedToUserName} • 🎁 +${task.points}pt",
+                    text = "👤 ${assigneeDisplayName(task)} • 🎁 +${task.points}pt",
                     fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.8f)
                 )
