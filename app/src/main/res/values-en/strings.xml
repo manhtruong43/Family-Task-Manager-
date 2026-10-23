@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App -->
+    <string name="app_name">Family Task Manager</string>
+    <string name="welcome_title">Welcome to Family Task Manager</string>
+    <string name="welcome_subtitle">Build a connected and organized family together</string>
+
+    <!-- Auth -->
+    <string name="login">Login</string>
+    <string name="register">Register</string>
+    <string name="full_name">Full Name</string>
+    <string name="email">Email</string>
+    <string name="password">Password</string>
+    <string name="role">Role</string>
+    <string name="role_admin">Admin (Parent)</string>
+    <string name="role_member">Member (Child)</string>
+    <string name="continue_btn">Continue</string>
+
+    <!-- Family -->
+    <string name="family_name">Family Group Name</string>
+    <string name="invite_code">Family Invite Code</string>
+    <string name="create_family">Create New Family Group</string>
+    <string name="join_family">Join by Invite Code</string>
+    <string name="copy_invite_code">Copy Invite Code</string>
+    <string name="invite_code_copied">Invite code copied!</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_tasks">Tasks</string>
+    <string name="nav_rewards">Rewards</string>
+    <string name="nav_calendar">Calendar</string>
+    <string name="nav_statistics">Statistics</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Task -->
+    <string name="task_title">Task Title</string>
+    <string name="task_description">Description</string>
+    <string name="task_assign">Assign to</string>
+    <string name="task_priority">Priority</string>
+    <string name="task_points">Reward Points</string>
+    <string name="task_deadline">Deadline</string>
+    <string name="task_create">Create Task</string>
+    <string name="task_status_todo">To Do</string>
+    <string name="task_status_in_progress">In Progress</string>
+    <string name="task_status_pending">Pending Approval</string>
+    <string name="task_status_completed">Completed</string>
+    <string name="task_status_rejected">Rejected</string>
+
+    <!-- Statistics -->
+    <string name="stats_title">Productivity Report</string>
+    <string name="stats_overview">Family Overview</string>
+    <string name="stats_leaderboard">Leaderboard</string>
+    <string name="stats_by_status">Distribution by Status</string>
+    <string name="stats_total">Total Tasks</string>
+    <string name="stats_completed">Completed</string>
+    <string name="stats_pending">Pending</string>
+    <string name="stats_in_progress">In Progress</string>
+
+    <!-- Calendar -->
+    <string name="calendar_title">Planning Calendar</string>
+    <string name="calendar_today">Today</string>
+    <string name="calendar_week_view">Week View</string>
+    <string name="calendar_no_tasks">No tasks for this day</string>
+
+    <!-- Errors -->
+    <string name="error_empty_name">Please enter your name</string>
+    <string name="error_empty_email">Please enter your email</string>
+    <string name="error_empty_family_name">Please enter family name</string>
+    <string name="error_invalid_code">Invalid invite code</string>
+    <string name="error_general">An error occurred, please try again</string>
+</resources>

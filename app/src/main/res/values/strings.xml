@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App -->
+    <string name="app_name">Quản lý Việc nhà Gia đình</string>
+    <string name="welcome_title">Chào mừng đến với Family Task Manager</string>
+    <string name="welcome_subtitle">Cùng nhau xây dựng gia đình gắn kết và có tổ chức</string>
+
+    <!-- Auth -->
+    <string name="login">Đăng nhập</string>
+    <string name="register">Đăng ký</string>
+    <string name="full_name">Họ và tên</string>
+    <string name="email">Email</string>
+    <string name="password">Mật khẩu</string>
+    <string name="role">Vai trò</string>
+    <string name="role_admin">Quản lý (Bố/Mẹ)</string>
+    <string name="role_member">Thành viên (Con cái)</string>
+    <string name="continue_btn">Tiếp tục</string>
+
+    <!-- Family -->
+    <string name="family_name">Tên nhóm gia đình</string>
+    <string name="invite_code">Mã mời gia đình</string>
+    <string name="create_family">Tạo nhóm gia đình mới</string>
+    <string name="join_family">Tham gia bằng mã mời</string>
+    <string name="copy_invite_code">Sao chép mã mời</string>
+    <string name="invite_code_copied">Đã sao chép mã mời!</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Trang chủ</string>
+    <string name="nav_tasks">Nhiệm vụ</string>
+    <string name="nav_rewards">Phần thưởng</string>
+    <string name="nav_calendar">Lịch</string>
+    <string name="nav_statistics">Thống kê</string>
+    <string name="nav_settings">Cài đặt</string>
+
+    <!-- Task -->
+    <string name="task_title">Tiêu đề nhiệm vụ</string>
+    <string name="task_description">Mô tả</string>
+    <string name="task_assign">Giao cho</string>
+    <string name="task_priority">Độ ưu tiên</string>
+    <string name="task_points">Điểm thưởng</string>
+    <string name="task_deadline">Hạn chót</string>
+    <string name="task_create">Tạo nhiệm vụ</string>
+    <string name="task_status_todo">Chưa làm</string>
+    <string name="task_status_in_progress">Đang làm</string>
+    <string name="task_status_pending">Chờ duyệt</string>
+    <string name="task_status_completed">Hoàn thành</string>
+    <string name="task_status_rejected">Bị từ chối</string>
+
+    <!-- Statistics -->
+    <string name="stats_title">Báo Cáo Năng Suất</string>
+    <string name="stats_overview">Tổng quan gia đình</string>
+    <string name="stats_leaderboard">Bảng xếp hạng</string>
+    <string name="stats_by_status">Phân bổ theo trạng thái</string>
+    <string name="stats_total">Tổng nhiệm vụ</string>
+    <string name="stats_completed">Đã hoàn thành</string>
+    <string name="stats_pending">Chờ duyệt</string>
+    <string name="stats_in_progress">Đang thực hiện</string>
+
+    <!-- Calendar -->
+    <string name="calendar_title">Lịch Lập Kế Hoạch</string>
+    <string name="calendar_today">Hôm nay</string>
+    <string name="calendar_week_view">Xem theo tuần</string>
+    <string name="calendar_no_tasks">Không có nhiệm vụ trong ngày này</string>
+
+    <!-- Errors -->
+    <string name="error_empty_name">Vui lòng nhập họ tên</string>
+    <string name="error_empty_email">Vui lòng nhập email</string>
+    <string name="error_empty_family_name">Vui lòng nhập tên gia đình</string>
+    <string name="error_invalid_code">Mã mời không hợp lệ</string>
+    <string name="error_general">Đã có lỗi xảy ra, vui lòng thử lại</string>
+</resources>
