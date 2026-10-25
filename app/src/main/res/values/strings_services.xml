@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Chuỗi giao diện cho các module: Lịch kế hoạch (cal_), Thông báo (noti_), Phần thưởng (rw_).
+    Tách riêng khỏi strings.xml để không bị conflict khi nhiều người cùng sửa.
+-->
+<resources>
+    <!-- ───────── Lịch kế hoạch ───────── -->
+    <string name="cal_title">Lịch Kế Hoạch Gia Đình</string>
+    <string name="cal_back">Trở về</string>
+    <string name="cal_go_today">Về hôm nay</string>
+    <string name="cal_prev_week">Tuần trước</string>
+    <string name="cal_next_week">Tuần sau</string>
+    <string name="cal_this_week">Tuần hiện tại</string>
+    <string name="cal_weeks_ago">%d tuần trước</string>
+    <string name="cal_weeks_later">%d tuần tới</string>
+    <string name="cal_filter_all">Cả nhà</string>
+    <string name="cal_filter_mine">Của tôi</string>
+    <string name="cal_week_total">Việc trong tuần</string>
+    <string name="cal_week_done">Đã xong</string>
+    <string name="cal_week_overdue">Quá hạn</string>
+    <string name="cal_task_count">%d nhiệm vụ</string>
+    <string name="cal_no_tasks_day">Không có nhiệm vụ nào\ntrong ngày này</string>
+    <string name="cal_everyone">Cả nhà</string>
+    <string name="cal_task_meta">👤 %1$s  •  ⭐ %2$d điểm</string>
+    <string name="cal_deadline_at">Hạn: %s</string>
+    <string name="cal_overdue_at">Quá hạn từ %s</string>
+    <string name="cal_no_deadline_hint">Có %d nhiệm vụ chưa đặt hạn chót nên không hiện trên lịch.</string>
+    <string name="cal_reminder_hint">⏰ Ứng dụng sẽ tự nhắc trước hạn chót 30 phút đối với các việc chưa hoàn thành.</string>
+    <string name="cal_status_todo">Chưa làm</string>
+    <string name="cal_status_in_progress">Đang làm</string>
+    <string name="cal_status_pending">Chờ duyệt</string>
+    <string name="cal_status_completed">Xong</string>
+    <string name="cal_status_rejected">Làm lại</string>
+
+    <!-- ───────── Thông báo ───────── -->
+    <string name="noti_center_title">Thông báo</string>
+    <string name="noti_unread_count">%d thông báo chưa đọc</string>
+    <string name="noti_mark_all_read">Đọc tất cả</string>
+    <string name="noti_delete_all">Xóa hết</string>
+    <string name="noti_delete">Xóa thông báo</string>
+    <string name="noti_empty">Bạn chưa có thông báo nào</string>
+    <string name="noti_time_just_now">Vừa xong</string>
+    <string name="noti_time_minutes_ago">%d phút trước</string>
+    <string name="noti_time_hours_ago">%d giờ trước</string>
+    <string name="noti_everyone">cả nhà</string>
+
+    <string name="noti_channel_tasks">Nhiệm vụ gia đình</string>
+    <string name="noti_channel_tasks_desc">Thông báo nhiệm vụ được giao, duyệt và từ chối</string>
+    <string name="noti_channel_rewards">Phần thưởng</string>
+    <string name="noti_channel_rewards_desc">Thông báo điểm thưởng và đổi thưởng</string>
+    <string name="noti_channel_reminders">Nhắc hạn chót</string>
+    <string name="noti_channel_reminders_desc">Nhắc các nhiệm vụ sắp đến hạn hoặc đã quá hạn</string>
+
+    <string name="noti_reminder_title">⏰ Sắp đến hạn chót!</string>
+    <string name="noti_reminder_message">\"%1$s\" hết hạn lúc %2$s. Người thực hiện: %3$s.</string>
+    <string name="noti_overdue_title">⚠️ Nhiệm vụ đã quá hạn</string>
+    <string name="noti_overdue_message">\"%1$s\" đã quá hạn (%2$s). Người thực hiện: %3$s.</string>
+
+    <!-- ───────── Phần thưởng ───────── -->
+    <string name="rw_title">Cửa Hàng Phần Thưởng</string>
+    <string name="rw_back">Trở về</string>
+    <string name="rw_your_points">Điểm tích lũy của bạn</string>
+    <string name="rw_points_value">%d ⭐</string>
+    <string name="rw_admin_summary_title">Yêu cầu đổi quà đang chờ</string>
+    <string name="rw_admin_pending_count">%d yêu cầu</string>
+    <string name="rw_tab_rewards">Phần thưởng</string>
+    <string name="rw_tab_history_admin">Yêu cầu đổi quà</string>
+    <string name="rw_tab_history_member">Quà của tôi</string>
+    <string name="rw_add_reward">Thêm phần thưởng mới</string>
+    <string name="rw_empty_rewards_admin">Chưa có phần thưởng nào.\nHãy thêm phần thưởng để tạo động lực cho cả nhà!</string>
+    <string name="rw_empty_rewards_member">Bố/Mẹ chưa tạo phần thưởng nào.</string>
+    <string name="rw_empty_history">Chưa có yêu cầu đổi quà nào</string>
+    <string name="rw_price">Giá đổi: %d điểm</string>
+    <string name="rw_redeem">Đổi quà</string>
+    <string name="rw_edit">Sửa phần thưởng</string>
+    <string name="rw_delete">Xóa phần thưởng</string>
+    <string name="rw_can_redeem">Bạn đã đủ điểm để đổi quà này 🎉</string>
+    <string name="rw_need_more">Cần thêm %d điểm nữa</string>
+    <string name="rw_redeemed_by">%1$s • -%2$d điểm</string>
+    <string name="rw_approve">Trao quà</string>
+    <string name="rw_reject">Từ chối</string>
+    <string name="rw_status_pending">Chờ trao</string>
+    <string name="rw_status_approved">Đã trao</string>
+    <string name="rw_status_rejected">Bị từ chối</string>
+
+    <string name="rw_dialog_create_title">Thêm phần thưởng</string>
+    <string name="rw_dialog_edit_title">Sửa phần thưởng</string>
+    <string name="rw_field_title">Tên quà (vd: Xem phim cuối tuần)</string>
+    <string name="rw_field_description">Mô tả (không bắt buộc)</string>
+    <string name="rw_field_points">Số điểm cần để đổi</string>
+    <string name="rw_field_points_error">Số điểm phải từ 1 đến %d</string>
+    <string name="rw_save">Lưu</string>
+    <string name="rw_cancel">Hủy</string>
+
+    <string name="rw_delete_title">Xóa phần thưởng?</string>
+    <string name="rw_delete_message">Phần thưởng \"%s\" sẽ bị xóa khỏi cửa hàng. Các yêu cầu đổi quà cũ vẫn được giữ lại.</string>
+    <string name="rw_delete_confirm">Xóa</string>
+    <string name="rw_redeem_title">Xác nhận đổi quà</string>
+    <string name="rw_redeem_message">Đổi \"%1$s\" với giá %2$d điểm?\nSau khi đổi bạn còn %3$d điểm. Bố/Mẹ sẽ xác nhận và trao quà cho bạn.</string>
+    <string name="rw_redeem_confirm">Đổi ngay</string>
+    <string name="rw_reject_title">Từ chối yêu cầu?</string>
+    <string name="rw_reject_message">Từ chối yêu cầu đổi \"%2$s\" của %1$s. Hệ thống sẽ hoàn lại %3$d điểm cho thành viên.</string>
+    <string name="rw_reject_confirm">Từ chối</string>
+
+    <string name="rw_msg_created">Đã thêm phần thưởng</string>
+    <string name="rw_msg_updated">Đã cập nhật phần thưởng</string>
+    <string name="rw_msg_deleted">Đã xóa phần thưởng</string>
+    <string name="rw_msg_invalid">Thông tin phần thưởng không hợp lệ</string>
+    <string name="rw_msg_not_allowed">Bạn không có quyền thực hiện thao tác này</string>
+    <string name="rw_msg_not_enough_points">Bạn không đủ điểm để đổi quà này</string>
+    <string name="rw_msg_reward_not_found">Phần thưởng không còn tồn tại</string>
+    <string name="rw_msg_redeem_success">Đã gửi yêu cầu đổi \"%s\"! Chờ Bố/Mẹ trao quà nhé.</string>
+    <string name="rw_msg_approved">Đã xác nhận trao quà</string>
+    <string name="rw_msg_rejected">Đã từ chối và hoàn điểm cho thành viên</string>
+    <string name="rw_msg_already_handled">Yêu cầu này đã được xử lý trước đó</string>
+    <string name="rw_msg_error">Đã có lỗi xảy ra, vui lòng thử lại</string>
+
+    <string name="rw_noti_request_title">🎁 Yêu cầu đổi quà mới</string>
+    <string name="rw_noti_request_message">%1$s muốn đổi \"%2$s\" (%3$d điểm). Vào Phần thưởng để xác nhận.</string>
+    <string name="rw_noti_approved_title">🎉 Phần thưởng đã được trao!</string>
+    <string name="rw_noti_approved_message">Phần thưởng \"%s\" đã được xác nhận trao cho bạn!</string>
+    <string name="rw_noti_rejected_title">↩️ Yêu cầu đổi quà bị từ chối</string>
+    <string name="rw_noti_rejected_message">Yêu cầu đổi \"%1$s\" bị từ chối. Bạn đã được hoàn lại %2$d điểm.</string>
+
+    <!-- Quà mặc định khi tạo gia đình mới -->
+    <string name="rw_default_movie_title">🎬 1 Buổi xem phim rạp</string>
+    <string name="rw_default_movie_desc">Được chọn bộ phim yêu thích để cả nhà cùng xem</string>
+    <string name="rw_default_game_title">🎮 1 Giờ chơi game</string>
+    <string name="rw_default_game_desc">Thêm 1 giờ chơi game cuối tuần</string>
+    <string name="rw_default_icecream_title">🍦 1 Ly kem siêu ngon</string>
+    <string name="rw_default_icecream_desc">Đổi 1 ly kem vị yêu thích</string>
+    <string name="rw_default_pizza_title">🍕 Bữa tối Pizza gia đình</string>
+    <string name="rw_default_pizza_desc">Được chọn vị Pizza cho cả nhà thưởng thức</string>
+    <string name="rw_default_picnic_title">⛺ Dã ngoại công viên</string>
+    <string name="rw_default_picnic_desc">Cả nhà cùng đi dã ngoại vào cuối tuần</string>
+</resources>
