@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    UI strings for modules: Planning calendar (cal_), Notifications (noti_), Rewards (rw_).
+    Kept separate from strings.xml to avoid merge conflicts between team members.
+-->
+<resources>
+    <!-- ───────── Planning calendar ───────── -->
+    <string name="cal_title">Family Planner</string>
+    <string name="cal_back">Back</string>
+    <string name="cal_go_today">Go to today</string>
+    <string name="cal_prev_week">Previous week</string>
+    <string name="cal_next_week">Next week</string>
+    <string name="cal_this_week">This week</string>
+    <string name="cal_weeks_ago">%d week(s) ago</string>
+    <string name="cal_weeks_later">In %d week(s)</string>
+    <string name="cal_filter_all">Whole family</string>
+    <string name="cal_filter_mine">Mine</string>
+    <string name="cal_week_total">This week</string>
+    <string name="cal_week_done">Done</string>
+    <string name="cal_week_overdue">Overdue</string>
+    <string name="cal_task_count">%d task(s)</string>
+    <string name="cal_no_tasks_day">No tasks\non this day</string>
+    <string name="cal_everyone">Everyone</string>
+    <string name="cal_task_meta">👤 %1$s  •  ⭐ %2$d pts</string>
+    <string name="cal_deadline_at">Due: %s</string>
+    <string name="cal_overdue_at">Overdue since %s</string>
+    <string name="cal_no_deadline_hint">%d task(s) have no deadline, so they are not shown on the calendar.</string>
+    <string name="cal_reminder_hint">⏰ The app reminds you 30 minutes before the deadline of unfinished tasks.</string>
+    <string name="cal_status_todo">To do</string>
+    <string name="cal_status_in_progress">Doing</string>
+    <string name="cal_status_pending">Review</string>
+    <string name="cal_status_completed">Done</string>
+    <string name="cal_status_rejected">Redo</string>
+
+    <!-- ───────── Notifications ───────── -->
+    <string name="noti_center_title">Notifications</string>
+    <string name="noti_unread_count">%d unread</string>
+    <string name="noti_mark_all_read">Read all</string>
+    <string name="noti_delete_all">Clear all</string>
+    <string name="noti_delete">Delete notification</string>
+    <string name="noti_empty">You have no notifications yet</string>
+    <string name="noti_time_just_now">Just now</string>
+    <string name="noti_time_minutes_ago">%d min ago</string>
+    <string name="noti_time_hours_ago">%d h ago</string>
+    <string name="noti_everyone">everyone</string>
+
+    <string name="noti_channel_tasks">Family tasks</string>
+    <string name="noti_channel_tasks_desc">Task assigned, approved and rejected</string>
+    <string name="noti_channel_rewards">Rewards</string>
+    <string name="noti_channel_rewards_desc">Points and reward redemptions</string>
+    <string name="noti_channel_reminders">Deadline reminders</string>
+    <string name="noti_channel_reminders_desc">Reminders for tasks that are due soon or overdue</string>
+
+    <string name="noti_reminder_title">⏰ Deadline coming up!</string>
+    <string name="noti_reminder_message">\"%1$s\" is due at %2$s. Assigned to: %3$s.</string>
+    <string name="noti_overdue_title">⚠️ Task overdue</string>
+    <string name="noti_overdue_message">\"%1$s\" is overdue (%2$s). Assigned to: %3$s.</string>
+
+    <!-- ───────── Rewards ───────── -->
+    <string name="rw_title">Reward Shop</string>
+    <string name="rw_back">Back</string>
+    <string name="rw_your_points">Your points</string>
+    <string name="rw_points_value">%d ⭐</string>
+    <string name="rw_admin_summary_title">Pending reward requests</string>
+    <string name="rw_admin_pending_count">%d request(s)</string>
+    <string name="rw_tab_rewards">Rewards</string>
+    <string name="rw_tab_history_admin">Requests</string>
+    <string name="rw_tab_history_member">My rewards</string>
+    <string name="rw_add_reward">Add a new reward</string>
+    <string name="rw_empty_rewards_admin">No rewards yet.\nAdd some rewards to motivate the family!</string>
+    <string name="rw_empty_rewards_member">Your parents have not created any rewards yet.</string>
+    <string name="rw_empty_history">No reward requests yet</string>
+    <string name="rw_price">Cost: %d points</string>
+    <string name="rw_redeem">Redeem</string>
+    <string name="rw_edit">Edit reward</string>
+    <string name="rw_delete">Delete reward</string>
+    <string name="rw_can_redeem">You have enough points for this reward 🎉</string>
+    <string name="rw_need_more">%d more points needed</string>
+    <string name="rw_redeemed_by">%1$s • -%2$d pts</string>
+    <string name="rw_approve">Give reward</string>
+    <string name="rw_reject">Reject</string>
+    <string name="rw_status_pending">Pending</string>
+    <string name="rw_status_approved">Given</string>
+    <string name="rw_status_rejected">Rejected</string>
+
+    <string name="rw_dialog_create_title">Add reward</string>
+    <string name="rw_dialog_edit_title">Edit reward</string>
+    <string name="rw_field_title">Reward name (e.g. Weekend movie)</string>
+    <string name="rw_field_description">Description (optional)</string>
+    <string name="rw_field_points">Points required</string>
+    <string name="rw_field_points_error">Points must be between 1 and %d</string>
+    <string name="rw_save">Save</string>
+    <string name="rw_cancel">Cancel</string>
+
+    <string name="rw_delete_title">Delete reward?</string>
+    <string name="rw_delete_message">\"%s\" will be removed from the shop. Previous requests are kept.</string>
+    <string name="rw_delete_confirm">Delete</string>
+    <string name="rw_redeem_title">Confirm redemption</string>
+    <string name="rw_redeem_message">Redeem \"%1$s\" for %2$d points?\nYou will have %3$d points left. Your parents will confirm and give you the reward.</string>
+    <string name="rw_redeem_confirm">Redeem now</string>
+    <string name="rw_reject_title">Reject request?</string>
+    <string name="rw_reject_message">Reject %1$s\'s request for \"%2$s\". %3$d points will be refunded.</string>
+    <string name="rw_reject_confirm">Reject</string>
+
+    <string name="rw_msg_created">Reward added</string>
+    <string name="rw_msg_updated">Reward updated</string>
+    <string name="rw_msg_deleted">Reward deleted</string>
+    <string name="rw_msg_invalid">Invalid reward information</string>
+    <string name="rw_msg_not_allowed">You are not allowed to do this</string>
+    <string name="rw_msg_not_enough_points">Not enough points for this reward</string>
+    <string name="rw_msg_reward_not_found">This reward no longer exists</string>
+    <string name="rw_msg_redeem_success">Request for \"%s\" sent! Wait for your parents to give it to you.</string>
+    <string name="rw_msg_approved">Reward given</string>
+    <string name="rw_msg_rejected">Request rejected and points refunded</string>
+    <string name="rw_msg_already_handled">This request has already been handled</string>
+    <string name="rw_msg_error">Something went wrong, please try again</string>
+
+    <string name="rw_noti_request_title">🎁 New reward request</string>
+    <string name="rw_noti_request_message">%1$s wants to redeem \"%2$s\" (%3$d points). Open Rewards to confirm.</string>
+    <string name="rw_noti_approved_title">🎉 Reward given!</string>
+    <string name="rw_noti_approved_message">Your reward \"%s\" has been confirmed!</string>
+    <string name="rw_noti_rejected_title">↩️ Reward request rejected</string>
+    <string name="rw_noti_rejected_message">Your request for \"%1$s\" was rejected. %2$d points have been refunded.</string>
+
+    <!-- Default rewards created with a new family -->
+    <string name="rw_default_movie_title">🎬 A trip to the cinema</string>
+    <string name="rw_default_movie_desc">Choose a favorite movie for the whole family</string>
+    <string name="rw_default_game_title">🎮 1 hour of gaming</string>
+    <string name="rw_default_game_desc">One extra hour of games at the weekend</string>
+    <string name="rw_default_icecream_title">🍦 A yummy ice cream</string>
+    <string name="rw_default_icecream_desc">One ice cream of your favorite flavor</string>
+    <string name="rw_default_pizza_title">🍕 Family pizza night</string>
+    <string name="rw_default_pizza_desc">Pick the pizza flavor for the whole family</string>
+    <string name="rw_default_picnic_title">⛺ Park picnic</string>
+    <string name="rw_default_picnic_desc">A family picnic at the weekend</string>
+</resources>
