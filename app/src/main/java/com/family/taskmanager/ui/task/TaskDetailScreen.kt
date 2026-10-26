@@ -1,5 +1,7 @@
 package com.family.taskmanager.ui.task
 
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -441,6 +443,9 @@ fun TaskDetailScreen(
                                     value = proofNote,
                                     onValueChange = { proofNote = it },
                                     label = { Text(stringResource(R.string.proof_note_hint), color = Color.White.copy(alpha = 0.8f)) },
+                                    maxLines = 4,
+                                    // Enter = đóng bàn phím thay vì chèn dòng trống
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = Color.White,
                                         unfocusedTextColor = Color.White,
