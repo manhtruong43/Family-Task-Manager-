@@ -6,7 +6,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -71,6 +73,7 @@ import com.family.taskmanager.ui.theme.GlassBox
 import com.family.taskmanager.ui.theme.GlassCard
 import com.family.taskmanager.ui.theme.GlassGradientBackground
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
@@ -184,12 +187,17 @@ fun HomeScreen(
                 }
             }
         ) { paddingValues ->
-            Column(
+            // Toàn bộ màn hình là MỘT LazyColumn: header, thành viên, quy tắc, tab và danh sách
+            // nhiệm vụ cuộn chung với nhau. Trước đây phần header cố định chiếm gần hết màn hình
+            // nên danh sách nhiệm vụ chỉ còn một khe nhỏ và gần như không vuốt được.
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(bottom = 96.dp)
             ) {
                 // Header Glass Card
+                item(key = "header") {
                 GlassHeaderSection(
                     userName = currentUser?.name ?: "",
                     userAvatar = currentUser?.avatarUrl ?: "🧔",
@@ -199,8 +207,10 @@ fun HomeScreen(
                     points = currentUser?.points ?: 0,
                     onInviteClick = { showInviteDialog = true }
                 )
+                }
 
                 // Khối DANH SÁCH THÀNH VIÊN GIA ĐÌNH
+                item(key = "members") {
                 GlassFamilyMembersSection(
                     members = familyMembers,
                     selectedFilter = selectedMemberFilter,
@@ -214,13 +224,17 @@ fun HomeScreen(
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
+                }
 
                 // Khối QUY TẮC CƠ BẢN CỦA GIA ĐÌNH
+                item(key = "rules") {
                 GlassFamilyRulesSection()
 
                 Spacer(modifier = Modifier.height(6.dp))
+                }
 
                 // Thanh Lọc Nhiệm Vụ & Badge Lọc Thành Viên
+                item(key = "filter") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -252,11 +266,14 @@ fun HomeScreen(
                         }
                     }
                 }
+                }
 
-                // Tabs
+                // Tabs (dính trên đầu khi cuộn xuống danh sách)
+                stickyHeader(key = "tabs") {
                 TabRow(
                     selectedTabIndex = selectedTab,
-                    containerColor = Color.Transparent,
+                    // Nền gần đặc để khi tab dính trên đầu, thẻ nhiệm vụ cuộn bên dưới không bị lộ qua chữ
+                    containerColor = Color(0xFF0F172A).copy(alpha = 0.92f),
                     contentColor = Color.White
                 ) {
                     tabTitles.forEachIndexed { index, title ->
@@ -274,13 +291,15 @@ fun HomeScreen(
                         )
                     }
                 }
+                }
 
                 // Task List
                 if (filteredTasks.isEmpty()) {
+                    item(key = "empty") {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .weight(1f),
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -289,13 +308,11 @@ fun HomeScreen(
                             fontSize = 15.sp
                         )
                     }
+                    }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp)
-                    ) {
-                        items(filteredTasks, key = { it.id }) { task ->
+                    item(key = "list-top") { Spacer(modifier = Modifier.height(12.dp)) }
+                    items(filteredTasks, key = { it.id }) { task ->
+                        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                             GlassTaskItemCard(
                                 task = task,
                                 viewModel = viewModel,

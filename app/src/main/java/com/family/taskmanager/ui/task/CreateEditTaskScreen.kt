@@ -1,5 +1,8 @@
 package com.family.taskmanager.ui.task
 
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -136,6 +139,9 @@ fun CreateEditTaskScreen(
                 value = title,
                 onValueChange = { title = it },
                 label = { Text(stringResource(R.string.task_title_hint)) },
+                singleLine = true,
+                // Enter = sang ô Mô tả
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -146,6 +152,9 @@ fun CreateEditTaskScreen(
                 onValueChange = { description = it },
                 label = { Text(stringResource(R.string.task_description_hint)) },
                 minLines = 3,
+                maxLines = 5,
+                // Chữ vẫn tự xuống dòng khi dài, nhưng phím Enter chuyển sang ô kế tiếp thay vì chèn dòng trống
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -228,6 +237,9 @@ fun CreateEditTaskScreen(
                 value = pointsText,
                 onValueChange = { pointsText = it.filter { char -> char.isDigit() } },
                 label = { Text(stringResource(R.string.task_points_hint)) },
+                singleLine = true,
+                // Bàn phím số, Enter = đóng bàn phím
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                 modifier = Modifier.fillMaxWidth()
             )
 
