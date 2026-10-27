@@ -6,6 +6,7 @@ import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.repository.NotificationRepository
 import com.family.taskmanager.data.service.DeadlineReminderScheduler
 import com.family.taskmanager.data.service.NotificationPreferences
+import com.family.taskmanager.data.service.RecurringTaskScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,12 +23,15 @@ import javax.inject.Inject
 class NotificationViewModel @Inject constructor(
     private val notificationRepository: NotificationRepository,
     private val preferences: NotificationPreferences,
-    deadlineReminderScheduler: DeadlineReminderScheduler
+    deadlineReminderScheduler: DeadlineReminderScheduler,
+    recurringTaskScheduler: RecurringTaskScheduler
 ) : ViewModel() {
 
     init {
         // Bắt đầu theo dõi hạn chót ngay khi có màn hình hiển thị chuông thông báo
         deadlineReminderScheduler.start()
+        // Sinh nhiệm vụ hôm nay từ lịch trình cố định + hẹn lần chạy lúc 00:01 đêm nay
+        recurringTaskScheduler.start()
     }
 
     private val userId = MutableStateFlow<String?>(null)

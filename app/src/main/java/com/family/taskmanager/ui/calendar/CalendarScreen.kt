@@ -3,6 +3,7 @@ package com.family.taskmanager.ui.calendar
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,11 +38,14 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -56,13 +60,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.family.taskmanager.R
+import com.family.taskmanager.data.model.RecurringSchedule
+import com.family.taskmanager.data.model.UserRole
+import com.family.taskmanager.data.repository.RecurringResult
 import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.TaskStatus
@@ -91,11 +100,43 @@ private val AccentGreen = Color(0xFF22C55E)
 fun CalendarScreen(
     viewModel: HomeViewModel,
     onBack: () -> Unit,
-    onTaskClick: (String) -> Unit = {}
+    onTaskClick: (String) -> Unit = {},
+    recurringViewModel: RecurringScheduleViewModel = hiltViewModel()
 ) {
     val tasks by viewModel.familyTasks.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
+    val members by viewModel.familyMembers.collectAsState()
+    val schedules by recurringViewModel.schedules.collectAsState()
+    val recurringBusy by recurringViewModel.isProcessing.collectAsState()
     val locale: Locale = LocalConfiguration.current.locales[0]
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val isAdmin = currentUser?.role == UserRole.ADMIN
+    var showSchedules by rememberSaveable { mutableStateOf(false) }
+
+    // Lịch trình cố định của gia đình đang đăng nhập
+    LaunchedEffect(currentUser?.familyId) {
+        recurringViewModel.setFamily(currentUser?.familyId)
+    }
+
+    // Kết quả thao tác lịch trình -> Snackbar
+    LaunchedEffect(recurringViewModel) {
+        recurringViewModel.results.collect { result ->
+            snackbarHostState.showSnackbar(
+                when (result) {
+                    RecurringResult.SAVED -> context.getString(R.string.rec_msg_saved)
+                    RecurringResult.DELETED -> context.getString(R.string.rec_msg_deleted)
+                    RecurringResult.PAUSED -> context.getString(R.string.rec_msg_paused)
+                    RecurringResult.RESUMED -> context.getString(R.string.rec_msg_resumed)
+                    RecurringResult.NOT_ALLOWED -> context.getString(R.string.rec_err_not_allowed)
+                    RecurringResult.INVALID_TITLE -> context.getString(R.string.rec_err_title)
+                    RecurringResult.INVALID_POINTS -> context.getString(R.string.rec_err_points, RecurringSchedule.MAX_POINTS)
+                    RecurringResult.NO_DAYS -> context.getString(R.string.rec_err_days)
+                    RecurringResult.NOT_FOUND -> context.getString(R.string.rec_err_general)
+                }
+            )
+        }
+    }
 
     // Tuần đang xem (offset so với tuần hiện tại) và ngày đang chọn - giữ nguyên khi xoay màn hình
     var weekOffset by rememberSaveable { mutableIntStateOf(0) }
@@ -142,6 +183,25 @@ fun CalendarScreen(
     val tasksOnSelectedDate = (tasksByDay[selectedDateMillis] ?: emptyList())
         .sortedBy { it.deadlineTimestamp }
 
+    // Lịch trình đang bật (đã lọc "Của tôi" nếu cần) -> dùng để hiện việc DỰ KIẾN của các ngày sắp tới.
+    // Hôm nay và quá khứ đã có nhiệm vụ thật được sinh ra nên không hiện dự kiến nữa.
+    val visibleSchedules = remember(schedules, onlyMine, currentUser?.id) {
+        schedules.filter { schedule ->
+            schedule.isActive && (!onlyMine ||
+                    schedule.assignedToUserId == currentUser?.id ||
+                    schedule.assignedToUserId.isBlank())
+        }
+    }
+    val todayStart = startOfDay(System.currentTimeMillis())
+    fun projectedOn(dayMillis: Long): List<RecurringSchedule> {
+        if (dayMillis <= todayStart) return emptyList()
+        val date = RecurringSchedule.dateOf(dayMillis)
+        return visibleSchedules
+            .filter { it.occursOn(date) }
+            .sortedBy { it.dueMinuteOfDay }
+    }
+    val projectedOnSelectedDate = projectedOn(selectedDateMillis)
+
     val weekTasks = weekDays.flatMap { tasksByDay[it] ?: emptyList() }
     val weekDone = weekTasks.count { it.status == TaskStatus.COMPLETED }
     val weekOverdue = weekTasks.count { isOverdue(it, now) }
@@ -155,6 +215,7 @@ fun CalendarScreen(
     GlassGradientBackground {
         Scaffold(
             containerColor = Color.Transparent,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
                     title = {
@@ -261,6 +322,7 @@ fun CalendarScreen(
                                         isToday = dayMillis == todayMillis,
                                         isSelected = dayMillis == selectedDateMillis,
                                         taskCount = dayTasks.size,
+                                        projectedCount = projectedOn(dayMillis).size,
                                         hasOverdue = dayTasks.any { isOverdue(it, now) },
                                         onClick = { selectedDateMillis = dayMillis }
                                     )
@@ -290,6 +352,16 @@ fun CalendarScreen(
                             colors = calendarChipColors()
                         )
                     }
+                }
+
+                // ─── Lịch trình cố định (Chức năng 6) ───
+                item {
+                    RecurringSummaryCard(
+                        activeCount = schedules.count { it.isActive },
+                        totalCount = schedules.size,
+                        isAdmin = isAdmin,
+                        onOpen = { showSchedules = true }
+                    )
                 }
 
                 item {
@@ -335,7 +407,10 @@ fun CalendarScreen(
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = stringResource(R.string.cal_task_count, tasksOnSelectedDate.size),
+                                text = stringResource(
+                                    R.string.cal_task_count,
+                                    tasksOnSelectedDate.size + projectedOnSelectedDate.size
+                                ),
                                 color = Color.White,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
@@ -345,7 +420,7 @@ fun CalendarScreen(
                 }
 
                 // ─── Danh sách nhiệm vụ trong ngày ───
-                if (tasksOnSelectedDate.isEmpty()) {
+                if (tasksOnSelectedDate.isEmpty() && projectedOnSelectedDate.isEmpty()) {
                     item {
                         GlassCard(modifier = Modifier.fillMaxWidth()) {
                             Column(
@@ -376,6 +451,21 @@ fun CalendarScreen(
                     }
                 }
 
+                // ─── Việc dự kiến từ lịch trình cố định (chỉ các ngày sắp tới) ───
+                if (projectedOnSelectedDate.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.rec_projected_header, projectedOnSelectedDate.size),
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    items(projectedOnSelectedDate, key = { "projected_" + it.id }) { schedule ->
+                        ProjectedTaskCard(schedule = schedule)
+                    }
+                }
+
                 // ─── Nhắc nhở việc chưa đặt hạn ───
                 if (noDeadlineCount > 0) {
                     item {
@@ -399,6 +489,23 @@ fun CalendarScreen(
             }
         }
     }
+
+    if (showSchedules) {
+        RecurringScheduleSheet(
+            schedules = schedules,
+            isAdmin = isAdmin,
+            members = members,
+            isProcessing = recurringBusy,
+            onDismiss = { showSchedules = false },
+            onSave = { editingId, input, onSaved ->
+                recurringViewModel.save(currentUser, editingId, input, onSaved)
+            },
+            onToggleActive = { schedule, active ->
+                recurringViewModel.setActive(currentUser, schedule, active)
+            },
+            onDelete = { schedule -> recurringViewModel.delete(currentUser, schedule) }
+        )
+    }
 }
 
 // ─────────────────────────── Ô ngày trong tuần ───────────────────────────
@@ -410,6 +517,7 @@ private fun DayCell(
     isToday: Boolean,
     isSelected: Boolean,
     taskCount: Int,
+    projectedCount: Int,
     hasOverdue: Boolean,
     onClick: () -> Unit
 ) {
@@ -465,6 +573,14 @@ private fun DayCell(
                             else -> AccentGold
                         }
                     )
+            )
+        } else if (projectedCount > 0) {
+            // Chấm rỗng: ngày này có việc dự kiến từ lịch trình cố định
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, if (isSelected) Color.White else Color(0xFF22D3EE), CircleShape)
             )
         } else {
             Spacer(modifier = Modifier.height(6.dp))

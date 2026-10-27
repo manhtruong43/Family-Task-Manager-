@@ -133,4 +133,67 @@
     <string name="rw_default_pizza_desc">Được chọn vị Pizza cho cả nhà thưởng thức</string>
     <string name="rw_default_picnic_title">⛺ Dã ngoại công viên</string>
     <string name="rw_default_picnic_desc">Cả nhà cùng đi dã ngoại vào cuối tuần</string>
+
+    <!-- Lịch trình cố định (Chức năng 6 - Dũng) -->
+    <string name="rec_section_title">🔁 Lịch trình cố định</string>
+    <string name="rec_section_summary">%1$d/%2$d lịch trình đang bật · tự tạo việc mỗi ngày</string>
+    <string name="rec_section_empty_admin">Chưa có lịch trình. Tạo việc lặp lại hằng ngày hoặc hằng tuần.</string>
+    <string name="rec_section_empty_member">Bố/Mẹ chưa tạo lịch trình cố định nào.</string>
+    <string name="rec_manage">Quản lý</string>
+    <string name="rec_view">Xem</string>
+    <string name="rec_sheet_title">Lịch trình cố định</string>
+    <string name="rec_sheet_hint">Mỗi ngày đến lịch, app tự tạo một nhiệm vụ (khi mở app và lúc 00:01 hằng đêm). Nhiệm vụ đó được làm, nộp minh chứng và duyệt như việc bình thường.</string>
+    <string name="rec_add">Thêm lịch trình</string>
+    <string name="rec_empty_admin">Chưa có lịch trình nào.\nVí dụ: Rửa bát hằng ngày lúc 20:00, dọn phòng thứ 7 hằng tuần.</string>
+    <string name="rec_empty_member">Bố/Mẹ chưa tạo lịch trình cố định nào.</string>
+    <string name="rec_paused">Tạm dừng</string>
+    <string name="rec_repeat_daily">Hằng ngày · %s</string>
+    <string name="rec_repeat_weekly">%1$s · %2$s</string>
+    <string name="rec_meta">%1$s · +%2$d điểm</string>
+    <string name="rec_everyone">Cả nhà</string>
+    <string name="rec_edit">Sửa</string>
+    <string name="rec_delete">Xóa</string>
+    <string name="rec_delete_title">Xóa lịch trình?</string>
+    <string name="rec_delete_message">Lịch trình \"%s\" sẽ bị xóa. Các nhiệm vụ đã tạo trước đó vẫn được giữ lại.</string>
+    <string name="rec_delete_confirm">Xóa</string>
+    <string name="rec_dialog_create">Tạo lịch trình cố định</string>
+    <string name="rec_dialog_edit">Sửa lịch trình</string>
+    <string name="rec_field_title">Tên công việc (vd: Rửa bát)</string>
+    <string name="rec_field_description">Mô tả (không bắt buộc)</string>
+    <string name="rec_field_points">Điểm thưởng mỗi lần</string>
+    <string name="rec_field_assignee">Giao cho</string>
+    <string name="rec_field_priority">Mức ưu tiên</string>
+    <string name="rec_priority_low">Thấp</string>
+    <string name="rec_priority_medium">Trung bình</string>
+    <string name="rec_priority_high">Cao</string>
+    <string name="rec_field_repeat">Lặp lại</string>
+    <string name="rec_repeat_type_daily">Hằng ngày</string>
+    <string name="rec_repeat_type_weekly">Hằng tuần</string>
+    <string name="rec_field_days">Vào các ngày</string>
+    <string name="rec_field_due">Hạn trong ngày: %s</string>
+    <string name="rec_change_time">Đổi giờ hạn chót</string>
+    <string name="rec_save">Lưu</string>
+    <string name="rec_cancel">Hủy</string>
+    <string name="rec_msg_saved">Đã lưu lịch trình</string>
+    <string name="rec_msg_deleted">Đã xóa lịch trình</string>
+    <string name="rec_msg_paused">Đã tạm dừng lịch trình</string>
+    <string name="rec_msg_resumed">Đã bật lại lịch trình</string>
+    <string name="rec_err_not_allowed">Chỉ Bố/Mẹ (Admin) mới quản lý được lịch trình</string>
+    <string name="rec_err_title">Vui lòng nhập tên công việc</string>
+    <string name="rec_err_points">Điểm phải từ 1 đến %d</string>
+    <string name="rec_err_days">Chọn ít nhất 1 ngày trong tuần</string>
+    <string name="rec_err_general">Không tìm thấy lịch trình, vui lòng thử lại</string>
+    <string name="rec_projected_header">🔁 Dự kiến từ lịch trình cố định (%d)</string>
+    <string name="rec_projected_note">Sẽ tự tạo vào ngày này · hạn %s</string>
+    <string name="rec_noti_title">🔁 Việc định kỳ hôm nay</string>
+    <string name="rec_noti_message">%1$s · hạn %2$s · %3$s · +%4$d điểm</string>
+    <string-array name="rec_days_short">
+        <item>T2</item>
+        <item>T3</item>
+        <item>T4</item>
+        <item>T5</item>
+        <item>T6</item>
+        <item>T7</item>
+        <item>CN</item>
+    </string-array>
 </resources>
