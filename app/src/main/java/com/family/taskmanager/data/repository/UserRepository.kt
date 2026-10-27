@@ -14,6 +14,11 @@ class UserRepository @Inject constructor(
 
     suspend fun getUserSync(userId: String): User? = userDao.getUserByIdSync(userId)
 
+    suspend fun getUserByEmailSync(email: String): User? = userDao.getUserByEmailSync(email)
+
+    suspend fun getUserByEmailAndNameSync(email: String, name: String): User? =
+        userDao.getUserByEmailAndNameSync(email, name)
+
     fun getUsersByFamily(familyId: String): Flow<List<User>> =
         userDao.getUsersByFamily(familyId)
 

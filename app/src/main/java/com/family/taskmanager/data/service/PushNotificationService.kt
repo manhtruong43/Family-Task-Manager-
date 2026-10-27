@@ -122,6 +122,17 @@ class PushNotificationService @Inject constructor(
         )
     }
 
+    /** Thông báo mã xác thực OTP mô phỏng. */
+    fun sendOtpNotification(email: String, otpCode: String) {
+        post(
+            channelId = CHANNEL_ID_REMINDERS,
+            notificationId = 9999,
+            title = "🔐 Mã xác thực OTP (Mô phỏng Email)",
+            message = "Mã OTP cho $email là: $otpCode. Hiệu lực 5 phút.",
+            priority = NotificationCompat.PRIORITY_HIGH
+        )
+    }
+
     private fun post(
         channelId: String,
         notificationId: Int,

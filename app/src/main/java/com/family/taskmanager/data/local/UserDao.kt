@@ -23,6 +23,12 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE familyId = :familyId AND role = :role")
     suspend fun getUsersByRoleSync(familyId: String, role: UserRole): List<User>
 
+    @Query("SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(:email)) LIMIT 1")
+    suspend fun getUserByEmailSync(email: String): User?
+
+    @Query("SELECT * FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM(:email)) AND LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
+    suspend fun getUserByEmailAndNameSync(email: String, name: String): User?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUser(user: User)
 
