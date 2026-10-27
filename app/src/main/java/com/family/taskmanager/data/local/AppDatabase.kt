@@ -4,6 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.family.taskmanager.data.model.FamilyGroup
 import com.family.taskmanager.data.model.NotificationItem
+import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.Reward
 import com.family.taskmanager.data.model.RewardRedemption
 import com.family.taskmanager.data.model.Task
@@ -18,9 +19,10 @@ import com.family.taskmanager.data.model.User
         Reward::class,
         RewardRedemption::class,
         NotificationItem::class,
-        TaskReaction::class
+        TaskReaction::class,
+        RecurringSchedule::class // Lịch trình cố định (Chức năng 6 - Dũng)
     ],
-    version = 3,
+    version = 4, // 3 -> 4: thêm bảng recurring_schedules
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,4 +32,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun rewardDao(): RewardDao
     abstract fun notificationDao(): NotificationDao
     abstract fun taskReactionDao(): TaskReactionDao
+    abstract fun recurringScheduleDao(): RecurringScheduleDao
 }

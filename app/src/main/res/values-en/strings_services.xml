@@ -133,4 +133,67 @@
     <string name="rw_default_pizza_desc">Pick the pizza flavor for the whole family</string>
     <string name="rw_default_picnic_title">⛺ Park picnic</string>
     <string name="rw_default_picnic_desc">A family picnic at the weekend</string>
+
+    <!-- Fixed schedules (Feature 6 - Dung) -->
+    <string name="rec_section_title">🔁 Fixed schedules</string>
+    <string name="rec_section_summary">%1$d/%2$d schedules on · tasks created automatically</string>
+    <string name="rec_section_empty_admin">No schedules yet. Create daily or weekly repeating chores.</string>
+    <string name="rec_section_empty_member">Your parents have not created any fixed schedules yet.</string>
+    <string name="rec_manage">Manage</string>
+    <string name="rec_view">View</string>
+    <string name="rec_sheet_title">Fixed schedules</string>
+    <string name="rec_sheet_hint">On each scheduled day the app creates a task automatically (when the app opens and at 00:01 every night). The task is done, proven and approved like any other task.</string>
+    <string name="rec_add">Add schedule</string>
+    <string name="rec_empty_admin">No schedules yet.\nExample: wash the dishes every day at 20:00, tidy the room every Saturday.</string>
+    <string name="rec_empty_member">Your parents have not created any fixed schedules yet.</string>
+    <string name="rec_paused">Paused</string>
+    <string name="rec_repeat_daily">Every day · %s</string>
+    <string name="rec_repeat_weekly">%1$s · %2$s</string>
+    <string name="rec_meta">%1$s · +%2$d points</string>
+    <string name="rec_everyone">Everyone</string>
+    <string name="rec_edit">Edit</string>
+    <string name="rec_delete">Delete</string>
+    <string name="rec_delete_title">Delete schedule?</string>
+    <string name="rec_delete_message">The schedule \"%s\" will be deleted. Tasks already created are kept.</string>
+    <string name="rec_delete_confirm">Delete</string>
+    <string name="rec_dialog_create">New fixed schedule</string>
+    <string name="rec_dialog_edit">Edit schedule</string>
+    <string name="rec_field_title">Chore name (e.g. Wash the dishes)</string>
+    <string name="rec_field_description">Description (optional)</string>
+    <string name="rec_field_points">Points per time</string>
+    <string name="rec_field_assignee">Assign to</string>
+    <string name="rec_field_priority">Priority</string>
+    <string name="rec_priority_low">Low</string>
+    <string name="rec_priority_medium">Medium</string>
+    <string name="rec_priority_high">High</string>
+    <string name="rec_field_repeat">Repeat</string>
+    <string name="rec_repeat_type_daily">Daily</string>
+    <string name="rec_repeat_type_weekly">Weekly</string>
+    <string name="rec_field_days">On these days</string>
+    <string name="rec_field_due">Due time each day: %s</string>
+    <string name="rec_change_time">Change due time</string>
+    <string name="rec_save">Save</string>
+    <string name="rec_cancel">Cancel</string>
+    <string name="rec_msg_saved">Schedule saved</string>
+    <string name="rec_msg_deleted">Schedule deleted</string>
+    <string name="rec_msg_paused">Schedule paused</string>
+    <string name="rec_msg_resumed">Schedule resumed</string>
+    <string name="rec_err_not_allowed">Only parents (Admin) can manage schedules</string>
+    <string name="rec_err_title">Please enter a chore name</string>
+    <string name="rec_err_points">Points must be between 1 and %d</string>
+    <string name="rec_err_days">Pick at least one day of the week</string>
+    <string name="rec_err_general">Schedule not found, please try again</string>
+    <string name="rec_projected_header">🔁 Planned from fixed schedules (%d)</string>
+    <string name="rec_projected_note">Will be created on this day · due %s</string>
+    <string name="rec_noti_title">🔁 Today\'s routine chore</string>
+    <string name="rec_noti_message">%1$s · due %2$s · %3$s · +%4$d points</string>
+    <string-array name="rec_days_short">
+        <item>Mo</item>
+        <item>Tu</item>
+        <item>We</item>
+        <item>Th</item>
+        <item>Fr</item>
+        <item>Sa</item>
+        <item>Su</item>
+    </string-array>
 </resources>
