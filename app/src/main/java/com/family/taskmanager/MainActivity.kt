@@ -158,7 +158,8 @@ fun FamilyTaskManagerApp() {
         composable(Screen.Calendar.route) {
             CalendarScreen(
                 viewModel = homeViewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onTaskClick = { taskId -> navController.navigate(Screen.TaskDetail.createRoute(taskId)) }
             )
         }
 

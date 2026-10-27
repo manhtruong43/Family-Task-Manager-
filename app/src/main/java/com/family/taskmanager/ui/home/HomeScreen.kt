@@ -67,6 +67,7 @@ import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
+import com.family.taskmanager.ui.notifications.NotificationBell
 import com.family.taskmanager.ui.task.StatusBadge
 import com.family.taskmanager.ui.task.assigneeDisplayName
 import com.family.taskmanager.ui.theme.GlassBox
@@ -199,6 +200,7 @@ fun HomeScreen(
                 // Header Glass Card
                 item(key = "header") {
                 GlassHeaderSection(
+                    userId = currentUser?.id,
                     userName = currentUser?.name ?: "",
                     userAvatar = currentUser?.avatarUrl ?: "🧔",
                     role = currentUser?.role ?: UserRole.MEMBER,
@@ -589,6 +591,7 @@ fun MemberDetailDialog(
 
 @Composable
 fun GlassHeaderSection(
+    userId: String?,
     userName: String,
     userAvatar: String,
     role: UserRole,
@@ -611,7 +614,10 @@ fun GlassHeaderSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .size(48.dp)
@@ -637,16 +643,21 @@ fun GlassHeaderSection(
                     }
                 }
 
-                GlassBox(
-                    modifier = Modifier.padding(start = 8.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 6.dp)
                 ) {
-                    Text(
-                        text = "⭐ $points pt",
-                        color = Color(0xFFFBBF24),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
+                    NotificationBell(userId = userId)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    GlassBox {
+                        Text(
+                            text = "⭐ $points pt",
+                            color = Color(0xFFFBBF24),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
                 }
             }
 
