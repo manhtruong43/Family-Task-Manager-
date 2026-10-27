@@ -1,5 +1,8 @@
 package com.family.taskmanager.ui.rewards
 
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -683,6 +686,7 @@ private fun RewardEditorDialog(
                     onValueChange = { title = it.take(60) },
                     label = { Text(stringResource(R.string.rw_field_title)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     colors = glassTextFieldColors(),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -691,6 +695,8 @@ private fun RewardEditorDialog(
                     value = description,
                     onValueChange = { description = it.take(150) },
                     label = { Text(stringResource(R.string.rw_field_description)) },
+                    maxLines = 3,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     colors = glassTextFieldColors(),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -700,6 +706,7 @@ private fun RewardEditorDialog(
                     onValueChange = { input -> pointsText = input.filter { it.isDigit() }.take(6) },
                     label = { Text(stringResource(R.string.rw_field_points)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                     isError = pointsText.isNotEmpty() && !pointsValid,
                     supportingText = {
                         if (pointsText.isNotEmpty() && !pointsValid) {
