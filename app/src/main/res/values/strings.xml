@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Chuỗi tiếng Việt (ngôn ngữ mặc định).
+    Chuỗi của Lịch / Thông báo / Phần thưởng nằm ở strings_services.xml.
+-->
 <resources>
     <!-- App -->
     <string name="app_name">Quản lý Việc nhà Gia đình</string>
     <string name="welcome_title">Chào mừng đến với Family Task Manager</string>
     <string name="welcome_subtitle">Cùng nhau xây dựng gia đình gắn kết và có tổ chức</string>
+
+    <!-- Dùng chung -->
+    <string name="common_back">Trở về</string>
+    <string name="common_save">Lưu</string>
+    <string name="common_cancel">Hủy</string>
+    <string name="common_you">Bạn</string>
+    <string name="common_points_short">⭐ %d</string>
 
     <!-- Auth -->
     <string name="login">Đăng nhập</string>
@@ -23,6 +34,32 @@
     <string name="join_family">Tham gia bằng mã mời</string>
     <string name="copy_invite_code">Sao chép mã mời</string>
     <string name="invite_code_copied">Đã sao chép mã mời!</string>
+
+    <string name="fam_setup_title">Cài đặt Gia đình</string>
+    <string name="fam_setup_subtitle_admin">Xin chào %s! Hãy tạo nhóm gia đình và gửi mã mời cho các thành viên.</string>
+    <string name="fam_setup_subtitle_member">Xin chào %s! Hãy nhập mã mời mà Bố/Mẹ gửi cho bạn.</string>
+    <string name="fam_name_hint">Tên gia đình (vd: Gia đình Yêu Thương)</string>
+    <string name="fam_create_button">Tạo gia đình &amp; sinh mã mời</string>
+    <string name="fam_code_hint">Mã mời (6 chữ số)</string>
+    <string name="fam_join_button">Tham gia gia đình</string>
+    <string name="fam_created_title">🎉 Tạo gia đình thành công!</string>
+    <string name="fam_your_invite_code">Mã mời gia đình của bạn:</string>
+    <string name="fam_invite_hint">Gửi mã này cho các thành viên. Bạn có thể xem lại hoặc đổi mã trong Cài đặt.</string>
+    <string name="fam_go_home">Vào trang chủ</string>
+    <string name="fam_role_hint_admin">Bạn đăng nhập với vai trò Quản lý nên sẽ trở thành Admin của nhóm: giao việc, duyệt việc và quản lý phần thưởng.</string>
+    <string name="fam_role_hint_member">Bạn đăng nhập với vai trò Thành viên nên sẽ tham gia nhóm có sẵn. Muốn tạo nhóm mới, hãy đăng nhập với vai trò Quản lý (Bố/Mẹ).</string>
+
+    <string name="fam_error_empty_name">Vui lòng nhập tên gia đình</string>
+    <string name="fam_error_invalid_code">Mã mời phải gồm đúng 6 chữ số</string>
+    <string name="fam_error_code_not_found">Mã mời không tồn tại. Vui lòng kiểm tra lại.</string>
+    <string name="fam_error_only_admin_create">Chỉ tài khoản Quản lý (Bố/Mẹ) mới được tạo nhóm gia đình</string>
+    <string name="fam_error_only_member_join">Tài khoản Quản lý không thể tham gia nhóm khác. Hãy tạo nhóm mới.</string>
+    <string name="fam_error_already_in_family">Bạn đã ở trong một nhóm gia đình</string>
+    <string name="fam_error_user_not_found">Không tìm thấy tài khoản</string>
+    <string name="fam_error_not_allowed">Bạn không có quyền thực hiện thao tác này</string>
+    <string name="fam_error_cannot_remove_admin">Không thể xóa Quản lý hoặc chính bạn khỏi nhóm</string>
+    <string name="fam_error_admin_must_stay">Quản lý chỉ có thể rời nhóm khi không còn thành viên nào khác</string>
+    <string name="fam_error_general">Đã có lỗi xảy ra, vui lòng thử lại</string>
 
     <!-- Navigation -->
     <string name="nav_home">Trang chủ</string>
@@ -56,6 +93,73 @@
     <string name="stats_pending">Chờ duyệt</string>
     <string name="stats_in_progress">Đang thực hiện</string>
 
+    <string name="stat_period_week">7 ngày</string>
+    <string name="stat_period_month">30 ngày</string>
+    <string name="stat_period_all">Tất cả</string>
+    <string name="stat_period_note">Thống kê theo ngày tạo nhiệm vụ</string>
+    <string name="stat_total_short">Tổng</string>
+    <string name="stat_done_short">Xong</string>
+    <string name="stat_doing_short">Đang làm</string>
+    <string name="stat_pending_short">Chờ duyệt</string>
+    <string name="stat_completed_label">Hoàn thành</string>
+    <string name="stat_points_earned_title">Điểm kiếm được trong kỳ</string>
+    <string name="stat_leaderboard_note">Xếp theo điểm tích lũy hiện có (sau khi đã đổi quà)</string>
+    <string name="stat_no_members">Chưa có thành viên</string>
+    <string name="stat_done_in_period">%d nhiệm vụ hoàn thành trong kỳ</string>
+    <string name="stat_points_unit">điểm</string>
+    <string name="stat_member_productivity">📊 Năng suất từng thành viên</string>
+    <string name="stat_member_done_of">%1$d/%2$d xong (%3$d%%)</string>
+    <string name="stat_member_rejected">%d lần bị từ chối</string>
+    <string name="stat_history_title">Lịch sử công việc đã hoàn thành</string>
+    <string name="stat_history_empty">Chưa có nhiệm vụ nào hoàn thành trong kỳ này</string>
+    <string name="stat_history_meta">%1$s • tạo ngày %2$s</string>
+    <string name="stat_everyone">Cả nhà</string>
+    <string name="stat_show_all">Xem tất cả (%d)</string>
+    <string name="stat_show_less">Thu gọn</string>
+
+    <!-- Settings -->
+    <string name="set_title">Cài Đặt</string>
+    <string name="set_verified">Đã xác thực</string>
+    <string name="set_edit_name">Đổi tên hiển thị</string>
+    <string name="set_role_admin">Bố / Mẹ (Quản lý)</string>
+    <string name="set_role_member">Con (Thành viên)</string>
+    <string name="set_change_avatar">Đổi avatar</string>
+    <string name="set_family_section">👨‍👩‍👧‍👦 Nhóm gia đình</string>
+    <string name="set_family_name">Nhóm: %s</string>
+    <string name="set_show_code">Hiện mã mời</string>
+    <string name="set_hide_code">Ẩn mã mời</string>
+    <string name="set_regenerate_code">Tạo mã mời mới</string>
+    <string name="set_members_title">Thành viên (%d)</string>
+    <string name="set_leave_family">Rời nhóm gia đình</string>
+    <string name="set_leave_admin_hint">Quản lý chỉ rời nhóm được khi đã xóa hết thành viên khác.</string>
+    <string name="set_language">Ngôn ngữ</string>
+    <string name="set_language_vi">Tiếng Việt</string>
+    <string name="set_language_en">English</string>
+    <string name="set_notifications">Thông báo đẩy</string>
+    <string name="set_notifications_desc">Giao việc, duyệt việc, đổi quà, nhắc hạn chót</string>
+    <string name="set_notifications_no_permission">Chưa cấp quyền thông báo. Bật công tắc để cấp quyền.</string>
+    <string name="set_logout">Đăng xuất</string>
+
+    <string name="set_regenerate_title">Tạo mã mời mới?</string>
+    <string name="set_regenerate_message">Mã mời cũ sẽ không dùng được nữa. Thành viên đã tham gia vẫn giữ nguyên.</string>
+    <string name="set_regenerate_confirm">Tạo mã mới</string>
+    <string name="set_remove_member_title">Xóa thành viên?</string>
+    <string name="set_remove_member_message">%s sẽ bị xóa khỏi nhóm gia đình. Họ có thể tham gia lại bằng mã mời.</string>
+    <string name="set_remove_member_confirm">Xóa khỏi nhóm</string>
+    <string name="set_leave_title">Rời nhóm gia đình?</string>
+    <string name="set_leave_message_member">Bạn sẽ rời nhóm và được đăng xuất. Điểm tích lũy vẫn được giữ lại.</string>
+    <string name="set_leave_message_admin">Bạn là thành viên cuối cùng, nhóm gia đình sẽ bị giải tán.</string>
+    <string name="set_leave_confirm">Rời nhóm</string>
+    <string name="set_logout_title">Đăng xuất?</string>
+    <string name="set_logout_message">Bạn có chắc muốn đăng xuất khỏi ứng dụng?</string>
+
+    <string name="set_msg_avatar_saved">Đã lưu avatar</string>
+    <string name="set_msg_name_saved">Đã lưu tên mới</string>
+    <string name="set_msg_code_regenerated">Đã tạo mã mời mới</string>
+    <string name="set_msg_member_removed">Đã xóa thành viên khỏi nhóm</string>
+    <string name="set_msg_left_family">Bạn đã rời nhóm gia đình</string>
+    <string name="set_msg_permission_denied">Bạn đã từ chối quyền thông báo. Hãy bật lại trong Cài đặt hệ thống → Ứng dụng.</string>
+
     <!-- Calendar -->
     <string name="calendar_title">Lịch Lập Kế Hoạch</string>
     <string name="calendar_today">Hôm nay</string>
@@ -69,7 +173,7 @@
     <string name="error_invalid_code">Mã mời không hợp lệ</string>
     <string name="error_general">Đã có lỗi xảy ra, vui lòng thử lại</string>
 
-    <!-- Create / Edit Task Screen -->
+    <!-- Màn hình Tạo / Chi tiết nhiệm vụ (phần của Trường, giữ nguyên) -->
     <string name="create_task_title">Tạo Nhiệm vụ Mới</string>
     <string name="btn_back">Trở về</string>
     <string name="task_title_hint">Tên nhiệm vụ (vd: Dọn phòng ngủ)</string>
@@ -88,8 +192,6 @@
     <string name="task_deadline_subtext">Bấm để chọn ngày hết hạn (23:59)</string>
     <string name="btn_change">Thay đổi</string>
     <string name="btn_create_and_assign">Tạo &amp; Giao Nhiệm vụ</string>
-
-    <!-- Task Detail Screen -->
     <string name="task_detail_title">Chi tiết Nhiệm vụ</string>
     <string name="task_not_found">Không tìm thấy nhiệm vụ</string>
     <string name="task_detail_assignee">👤 Người thực hiện: %1$s</string>

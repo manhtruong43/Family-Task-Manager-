@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    English strings.
+    Strings for Calendar / Notifications / Rewards live in strings_services.xml.
+-->
 <resources>
     <!-- App -->
     <string name="app_name">Family Task Manager</string>
     <string name="welcome_title">Welcome to Family Task Manager</string>
     <string name="welcome_subtitle">Build a connected and organized family together</string>
+
+    <!-- Common -->
+    <string name="common_back">Back</string>
+    <string name="common_save">Save</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_you">You</string>
+    <string name="common_points_short">⭐ %d</string>
 
     <!-- Auth -->
     <string name="login">Login</string>
@@ -23,6 +34,32 @@
     <string name="join_family">Join by Invite Code</string>
     <string name="copy_invite_code">Copy Invite Code</string>
     <string name="invite_code_copied">Invite code copied!</string>
+
+    <string name="fam_setup_title">Family Setup</string>
+    <string name="fam_setup_subtitle_admin">Hi %s! Create your family group and share the invite code with your family.</string>
+    <string name="fam_setup_subtitle_member">Hi %s! Enter the invite code your parents gave you.</string>
+    <string name="fam_name_hint">Family name (e.g. The Happy Family)</string>
+    <string name="fam_create_button">Create family &amp; invite code</string>
+    <string name="fam_code_hint">Invite code (6 digits)</string>
+    <string name="fam_join_button">Join family</string>
+    <string name="fam_created_title">🎉 Family created!</string>
+    <string name="fam_your_invite_code">Your family invite code:</string>
+    <string name="fam_invite_hint">Share this code with your family. You can view or change it later in Settings.</string>
+    <string name="fam_go_home">Go to Home</string>
+    <string name="fam_role_hint_admin">You signed in as an Admin, so you will manage this family: assign tasks, approve work and manage rewards.</string>
+    <string name="fam_role_hint_member">You signed in as a Member, so you will join an existing family. To create a new family, sign in as an Admin (Parent).</string>
+
+    <string name="fam_error_empty_name">Please enter a family name</string>
+    <string name="fam_error_invalid_code">The invite code must have exactly 6 digits</string>
+    <string name="fam_error_code_not_found">This invite code does not exist. Please check again.</string>
+    <string name="fam_error_only_admin_create">Only Admin (Parent) accounts can create a family</string>
+    <string name="fam_error_only_member_join">Admin accounts cannot join another family. Please create a new one.</string>
+    <string name="fam_error_already_in_family">You are already in a family group</string>
+    <string name="fam_error_user_not_found">Account not found</string>
+    <string name="fam_error_not_allowed">You are not allowed to do this</string>
+    <string name="fam_error_cannot_remove_admin">You cannot remove the Admin or yourself</string>
+    <string name="fam_error_admin_must_stay">The Admin can only leave when no other members remain</string>
+    <string name="fam_error_general">Something went wrong, please try again</string>
 
     <!-- Navigation -->
     <string name="nav_home">Home</string>
@@ -56,6 +93,73 @@
     <string name="stats_pending">Pending</string>
     <string name="stats_in_progress">In Progress</string>
 
+    <string name="stat_period_week">7 days</string>
+    <string name="stat_period_month">30 days</string>
+    <string name="stat_period_all">All time</string>
+    <string name="stat_period_note">Based on task creation date</string>
+    <string name="stat_total_short">Total</string>
+    <string name="stat_done_short">Done</string>
+    <string name="stat_doing_short">Doing</string>
+    <string name="stat_pending_short">Review</string>
+    <string name="stat_completed_label">Completed</string>
+    <string name="stat_points_earned_title">Points earned in period</string>
+    <string name="stat_leaderboard_note">Ranked by current point balance (after redemptions)</string>
+    <string name="stat_no_members">No members yet</string>
+    <string name="stat_done_in_period">%d task(s) completed in period</string>
+    <string name="stat_points_unit">points</string>
+    <string name="stat_member_productivity">📊 Productivity per member</string>
+    <string name="stat_member_done_of">%1$d/%2$d done (%3$d%%)</string>
+    <string name="stat_member_rejected">Rejected %d time(s)</string>
+    <string name="stat_history_title">Completed task history</string>
+    <string name="stat_history_empty">No completed tasks in this period</string>
+    <string name="stat_history_meta">%1$s • created %2$s</string>
+    <string name="stat_everyone">Everyone</string>
+    <string name="stat_show_all">Show all (%d)</string>
+    <string name="stat_show_less">Show less</string>
+
+    <!-- Settings -->
+    <string name="set_title">Settings</string>
+    <string name="set_verified">Verified</string>
+    <string name="set_edit_name">Change display name</string>
+    <string name="set_role_admin">Parent (Admin)</string>
+    <string name="set_role_member">Child (Member)</string>
+    <string name="set_change_avatar">Change avatar</string>
+    <string name="set_family_section">👨‍👩‍👧‍👦 Family group</string>
+    <string name="set_family_name">Group: %s</string>
+    <string name="set_show_code">Show invite code</string>
+    <string name="set_hide_code">Hide invite code</string>
+    <string name="set_regenerate_code">Generate new invite code</string>
+    <string name="set_members_title">Members (%d)</string>
+    <string name="set_leave_family">Leave family</string>
+    <string name="set_leave_admin_hint">The Admin can only leave after removing all other members.</string>
+    <string name="set_language">Language</string>
+    <string name="set_language_vi">Tiếng Việt</string>
+    <string name="set_language_en">English</string>
+    <string name="set_notifications">Push notifications</string>
+    <string name="set_notifications_desc">Assignments, approvals, rewards, deadline reminders</string>
+    <string name="set_notifications_no_permission">Notification permission not granted. Turn the switch on to allow it.</string>
+    <string name="set_logout">Log out</string>
+
+    <string name="set_regenerate_title">Generate a new invite code?</string>
+    <string name="set_regenerate_message">The old code will stop working. Existing members stay in the family.</string>
+    <string name="set_regenerate_confirm">Generate</string>
+    <string name="set_remove_member_title">Remove member?</string>
+    <string name="set_remove_member_message">%s will be removed from the family. They can join again with the invite code.</string>
+    <string name="set_remove_member_confirm">Remove</string>
+    <string name="set_leave_title">Leave family?</string>
+    <string name="set_leave_message_member">You will leave the family and be logged out. Your points are kept.</string>
+    <string name="set_leave_message_admin">You are the last member, so the family group will be deleted.</string>
+    <string name="set_leave_confirm">Leave</string>
+    <string name="set_logout_title">Log out?</string>
+    <string name="set_logout_message">Are you sure you want to log out?</string>
+
+    <string name="set_msg_avatar_saved">Avatar saved</string>
+    <string name="set_msg_name_saved">Name saved</string>
+    <string name="set_msg_code_regenerated">New invite code generated</string>
+    <string name="set_msg_member_removed">Member removed from the family</string>
+    <string name="set_msg_left_family">You have left the family</string>
+    <string name="set_msg_permission_denied">Notification permission denied. Enable it in System Settings → Apps.</string>
+
     <!-- Calendar -->
     <string name="calendar_title">Planning Calendar</string>
     <string name="calendar_today">Today</string>
@@ -69,7 +173,7 @@
     <string name="error_invalid_code">Invalid invite code</string>
     <string name="error_general">An error occurred, please try again</string>
 
-    <!-- Create / Edit Task Screen -->
+    <!-- Create / Task detail screens (Truong's part, kept as-is) -->
     <string name="create_task_title">Create New Task</string>
     <string name="btn_back">Back</string>
     <string name="task_title_hint">Task name (e.g. Clean bedroom)</string>
@@ -88,8 +192,6 @@
     <string name="task_deadline_subtext">Tap to select deadline date (23:59)</string>
     <string name="btn_change">Change</string>
     <string name="btn_create_and_assign">Create &amp; Assign Task</string>
-
-    <!-- Task Detail Screen -->
     <string name="task_detail_title">Task Details</string>
     <string name="task_not_found">Task not found</string>
     <string name="task_detail_assignee">👤 Assignee: %1$s</string>
