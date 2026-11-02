@@ -44,6 +44,9 @@ interface RecurringScheduleDao {
     @Query("SELECT COUNT(*) FROM users WHERE id = :userId AND familyId = :familyId")
     suspend fun countUserInFamily(userId: String, familyId: String): Int
 
+    @Query("SELECT COUNT(*) FROM family_groups WHERE id = :familyId")
+    suspend fun countFamily(familyId: String): Int
+
     @Query("SELECT id FROM users WHERE familyId = :familyId AND role = :role")
     suspend fun getUserIdsByRole(familyId: String, role: UserRole): List<String>
 }
