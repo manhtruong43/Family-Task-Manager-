@@ -6,6 +6,11 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// Room xuất cấu trúc DB ra app/schemas/<phiên bản>.json -> commit cùng code để viết migration
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
     namespace = "com.family.taskmanager"
     compileSdk = 35

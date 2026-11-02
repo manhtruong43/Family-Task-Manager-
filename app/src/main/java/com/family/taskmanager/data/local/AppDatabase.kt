@@ -23,7 +23,8 @@ import com.family.taskmanager.data.model.User
         RecurringSchedule::class // Lịch trình cố định (Chức năng 6 - Dũng)
     ],
     version = 4, // 3 -> 4: thêm bảng recurring_schedules
-    exportSchema = false
+    // Xuất schema ra app/schemas/ (cấu hình trong app/build.gradle.kts) để viết và kiểm tra migration
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao

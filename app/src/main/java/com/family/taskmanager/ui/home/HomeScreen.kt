@@ -1,12 +1,13 @@
 package com.family.taskmanager.ui.home
 
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CardGiftcard
@@ -58,21 +60,29 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.family.taskmanager.R
 import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
+import com.family.taskmanager.data.repository.TaskPermissions
 import com.family.taskmanager.ui.notifications.NotificationBell
 import com.family.taskmanager.ui.task.StatusBadge
 import com.family.taskmanager.ui.task.assigneeDisplayName
 import com.family.taskmanager.ui.theme.GlassBox
 import com.family.taskmanager.ui.theme.GlassCard
 import com.family.taskmanager.ui.theme.GlassGradientBackground
+
+private val AccentBlue = Color(0xFF38BDF8)
+private val AccentGold = Color(0xFFFBBF24)
+private val AccentGreen = Color(0xFF4ADE80)
+private val PrimaryBlue = Color(0xFF0284C7)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -95,35 +105,44 @@ fun HomeScreen(
     var selectedMemberFilter by remember { mutableStateOf<User?>(null) }
     var selectedMemberDetail by remember { mutableStateOf<User?>(null) }
 
-    val tabTitles = listOf("Tất cả", "Của tôi", "Cần duyệt", "Đã xong")
+    val isAdmin = currentUser?.role == UserRole.ADMIN
+
+    // Tab 3: Bố/Mẹ thấy "Cần duyệt" (mọi việc chờ duyệt); Con thấy "Chờ duyệt" (việc của mình đang chờ)
+    val tabTitles = listOf(
+        stringResource(R.string.home_tab_all),
+        stringResource(R.string.home_tab_mine),
+        stringResource(if (isAdmin) R.string.home_tab_to_review else R.string.home_tab_waiting),
+        stringResource(R.string.home_tab_done)
+    )
 
     val filteredTasks = tasks.filter { task ->
         val matchesTab = when (selectedTab) {
-            1 -> task.assignedToUserId == currentUser?.id
-            2 -> task.status == TaskStatus.PENDING_APPROVAL
+            // "Của tôi": việc giao đích danh cho tôi + việc chung của cả nhà (nếu tôi là Con)
+            1 -> TaskPermissions.isMine(currentUser, task)
+            2 -> task.status == TaskStatus.PENDING_APPROVAL &&
+                    (isAdmin || TaskPermissions.isMine(currentUser, task))
             3 -> task.status == TaskStatus.COMPLETED
             else -> true
         }
-        val matchesMember = if (selectedMemberFilter != null) {
-            task.assignedToUserId == selectedMemberFilter?.id
-        } else true
-
+        val matchesMember = selectedMemberFilter?.let { task.assignedToUserId == it.id } ?: true
         matchesTab && matchesMember
     }
 
+    val defaultFamilyName = stringResource(R.string.home_family_default)
+
     if (showInviteDialog && familyGroup != null) {
         FamilyInviteDialog(
-            familyName = familyGroup?.name ?: "Gia đình",
+            familyName = familyGroup?.name ?: defaultFamilyName,
             inviteCode = familyGroup?.inviteCode ?: "------",
             onDismiss = { showInviteDialog = false }
         )
     }
 
-    if (selectedMemberDetail != null) {
+    selectedMemberDetail?.let { member ->
         MemberDetailDialog(
-            member = selectedMemberDetail!!,
+            member = member,
             currentUser = currentUser,
-            tasks = tasks.filter { it.assignedToUserId == selectedMemberDetail?.id },
+            tasks = tasks.filter { it.assignedToUserId == member.id },
             onDismiss = { selectedMemberDetail = null },
             onCreateTaskForMember = {
                 selectedMemberDetail = null
@@ -136,180 +155,144 @@ fun HomeScreen(
         Scaffold(
             containerColor = Color.Transparent,
             floatingActionButton = {
-                if (currentUser?.role == UserRole.ADMIN) {
+                if (isAdmin) {
                     FloatingActionButton(
                         onClick = onCreateTaskClick,
-                        containerColor = Color(0xFF0284C7),
+                        containerColor = PrimaryBlue,
                         contentColor = Color.White
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Tạo việc mới")
+                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.home_cd_create_task))
                     }
                 }
             },
             bottomBar = {
-                NavigationBar(
-                    containerColor = Color(0xFF0F172A).copy(alpha = 0.85f)
-                ) {
-                    NavigationBarItem(
-                        selected = true,
-                        onClick = { },
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Trang chủ") },
-                        label = { Text("Nhiệm vụ") },
-                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Color(0xFF38BDF8), selectedTextColor = Color(0xFF38BDF8), unselectedIconColor = Color.White.copy(alpha = 0.6f), unselectedTextColor = Color.White.copy(alpha = 0.6f))
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = onRewardsClick,
-                        icon = { Icon(Icons.Default.CardGiftcard, contentDescription = "Phần thưởng") },
-                        label = { Text("Đổi thưởng") },
-                        colors = NavigationBarItemDefaults.colors(unselectedIconColor = Color.White.copy(alpha = 0.6f), unselectedTextColor = Color.White.copy(alpha = 0.6f))
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = onCalendarClick,
-                        icon = { Icon(Icons.Default.DateRange, contentDescription = "Lịch") },
-                        label = { Text("Lịch") },
-                        colors = NavigationBarItemDefaults.colors(unselectedIconColor = Color.White.copy(alpha = 0.6f), unselectedTextColor = Color.White.copy(alpha = 0.6f))
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = onStatisticsClick,
-                        icon = { Icon(Icons.Default.Leaderboard, contentDescription = "Thống kê") },
-                        label = { Text("Thống kê") },
-                        colors = NavigationBarItemDefaults.colors(unselectedIconColor = Color.White.copy(alpha = 0.6f), unselectedTextColor = Color.White.copy(alpha = 0.6f))
-                    )
-                    NavigationBarItem(
-                        selected = false,
-                        onClick = onSettingsClick,
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Cài đặt") },
-                        label = { Text("Cài đặt") },
-                        colors = NavigationBarItemDefaults.colors(unselectedIconColor = Color.White.copy(alpha = 0.6f), unselectedTextColor = Color.White.copy(alpha = 0.6f))
-                    )
-                }
+                HomeBottomBar(
+                    onRewardsClick = onRewardsClick,
+                    onCalendarClick = onCalendarClick,
+                    onStatisticsClick = onStatisticsClick,
+                    onSettingsClick = onSettingsClick
+                )
             }
         ) { paddingValues ->
             // Toàn bộ màn hình là MỘT LazyColumn: header, thành viên, quy tắc, tab và danh sách
-            // nhiệm vụ cuộn chung với nhau. Trước đây phần header cố định chiếm gần hết màn hình
-            // nên danh sách nhiệm vụ chỉ còn một khe nhỏ và gần như không vuốt được.
+            // nhiệm vụ cuộn chung với nhau.
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
                 contentPadding = PaddingValues(bottom = 96.dp)
             ) {
-                // Header Glass Card
                 item(key = "header") {
-                GlassHeaderSection(
-                    userId = currentUser?.id,
-                    userName = currentUser?.name ?: "",
-                    userAvatar = currentUser?.avatarUrl ?: "🧔",
-                    role = currentUser?.role ?: UserRole.MEMBER,
-                    familyName = familyGroup?.name ?: "Gia đình",
-                    inviteCode = familyGroup?.inviteCode ?: "",
-                    points = currentUser?.points ?: 0,
-                    onInviteClick = { showInviteDialog = true }
-                )
-                }
-
-                // Khối DANH SÁCH THÀNH VIÊN GIA ĐÌNH
-                item(key = "members") {
-                GlassFamilyMembersSection(
-                    members = familyMembers,
-                    selectedFilter = selectedMemberFilter,
-                    onMemberClick = { member ->
-                        selectedMemberFilter = if (selectedMemberFilter?.id == member.id) null else member
-                    },
-                    onMemberLongClick = { member ->
-                        selectedMemberDetail = member
-                    },
-                    onInviteClick = { showInviteDialog = true }
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-                }
-
-                // Khối QUY TẮC CƠ BẢN CỦA GIA ĐÌNH
-                item(key = "rules") {
-                GlassFamilyRulesSection()
-
-                Spacer(modifier = Modifier.height(6.dp))
-                }
-
-                // Thanh Lọc Nhiệm Vụ & Badge Lọc Thành Viên
-                item(key = "filter") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (selectedMemberFilter != null) "Công việc của ${selectedMemberFilter?.name}:" else "Danh sách nhiệm vụ:",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                    GlassHeaderSection(
+                        userId = currentUser?.id,
+                        userName = currentUser?.name ?: "",
+                        userAvatar = currentUser?.avatarUrl ?: "🧔",
+                        role = currentUser?.role ?: UserRole.MEMBER,
+                        familyName = familyGroup?.name ?: defaultFamilyName,
+                        inviteCode = familyGroup?.inviteCode ?: "",
+                        points = currentUser?.points ?: 0,
+                        onInviteClick = { showInviteDialog = true }
                     )
+                }
 
-                    if (selectedMemberFilter != null) {
-                        GlassBox(
-                            cornerRadius = 8.dp,
-                            backgroundColor = Color(0xFF38BDF8).copy(alpha = 0.3f),
-                            modifier = Modifier.clickable { selectedMemberFilter = null }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                item(key = "members") {
+                    GlassFamilyMembersSection(
+                        members = familyMembers,
+                        selectedFilter = selectedMemberFilter,
+                        onMemberClick = { member ->
+                            selectedMemberFilter = if (selectedMemberFilter?.id == member.id) null else member
+                        },
+                        onMemberLongClick = { member -> selectedMemberDetail = member },
+                        onInviteClick = { showInviteDialog = true }
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                item(key = "rules") {
+                    GlassFamilyRulesSection()
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                item(key = "filter") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = selectedMemberFilter?.let { stringResource(R.string.home_tasks_of, it.name) }
+                                ?: stringResource(R.string.home_task_list),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+
+                        selectedMemberFilter?.let { member ->
+                            GlassBox(
+                                cornerRadius = 8.dp,
+                                backgroundColor = AccentBlue.copy(alpha = 0.3f),
+                                modifier = Modifier.clickable { selectedMemberFilter = null }
                             ) {
-                                Text("Lọc: ${selectedMemberFilter?.name}", fontSize = 11.sp, color = Color.White)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(Icons.Default.Close, contentDescription = "Xóa lọc", tint = Color.White, modifier = Modifier.size(14.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(stringResource(R.string.home_filter_by, member.name), fontSize = 11.sp, color = Color.White)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = stringResource(R.string.home_cd_clear_filter),
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
-                }
 
-                // Tabs (dính trên đầu khi cuộn xuống danh sách)
+                // Tabs dính trên đầu khi cuộn xuống danh sách
                 stickyHeader(key = "tabs") {
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    // Nền gần đặc để khi tab dính trên đầu, thẻ nhiệm vụ cuộn bên dưới không bị lộ qua chữ
-                    containerColor = Color(0xFF0F172A).copy(alpha = 0.92f),
-                    contentColor = Color.White
-                ) {
-                    tabTitles.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = {
-                                Text(
-                                    title,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (selectedTab == index) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.7f)
-                                )
-                            }
-                        )
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        containerColor = Color(0xFF0F172A).copy(alpha = 0.92f),
+                        contentColor = Color.White
+                    ) {
+                        tabTitles.forEachIndexed { index, title ->
+                            Tab(
+                                selected = selectedTab == index,
+                                onClick = { selectedTab = index },
+                                text = {
+                                    Text(
+                                        title,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selectedTab == index) AccentBlue else Color.White.copy(alpha = 0.7f)
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
-                }
 
-                // Task List
                 if (filteredTasks.isEmpty()) {
                     item(key = "empty") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (selectedMemberFilter != null) "Thành viên ${selectedMemberFilter?.name} chưa có việc" else "Chưa có nhiệm vụ nào",
-                            color = Color.White.copy(alpha = 0.6f),
-                            fontSize = 15.sp
-                        )
-                    }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = selectedMemberFilter?.let { stringResource(R.string.home_member_no_tasks, it.name) }
+                                    ?: stringResource(R.string.home_no_tasks),
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 15.sp
+                            )
+                        }
                     }
                 } else {
                     item(key = "list-top") { Spacer(modifier = Modifier.height(12.dp)) }
@@ -330,6 +313,61 @@ fun HomeScreen(
 }
 
 @Composable
+private fun HomeBottomBar(
+    onRewardsClick: () -> Unit,
+    onCalendarClick: () -> Unit,
+    onStatisticsClick: () -> Unit,
+    onSettingsClick: () -> Unit
+) {
+    val unselected = NavigationBarItemDefaults.colors(
+        unselectedIconColor = Color.White.copy(alpha = 0.6f),
+        unselectedTextColor = Color.White.copy(alpha = 0.6f)
+    )
+    NavigationBar(containerColor = Color(0xFF0F172A).copy(alpha = 0.85f)) {
+        NavigationBarItem(
+            selected = true,
+            onClick = { },
+            icon = { Icon(Icons.Default.Home, contentDescription = stringResource(R.string.home_nav_tasks)) },
+            label = { Text(stringResource(R.string.home_nav_tasks), maxLines = 1) },
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = AccentBlue,
+                selectedTextColor = AccentBlue,
+                unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                unselectedTextColor = Color.White.copy(alpha = 0.6f)
+            )
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = onRewardsClick,
+            icon = { Icon(Icons.Default.CardGiftcard, contentDescription = stringResource(R.string.home_nav_rewards)) },
+            label = { Text(stringResource(R.string.home_nav_rewards), maxLines = 1) },
+            colors = unselected
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = onCalendarClick,
+            icon = { Icon(Icons.Default.DateRange, contentDescription = stringResource(R.string.home_nav_calendar)) },
+            label = { Text(stringResource(R.string.home_nav_calendar), maxLines = 1) },
+            colors = unselected
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = onStatisticsClick,
+            icon = { Icon(Icons.Default.Leaderboard, contentDescription = stringResource(R.string.home_nav_statistics)) },
+            label = { Text(stringResource(R.string.home_nav_statistics), maxLines = 1) },
+            colors = unselected
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = onSettingsClick,
+            icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.home_nav_settings)) },
+            label = { Text(stringResource(R.string.home_nav_settings), maxLines = 1) },
+            colors = unselected
+        )
+    }
+}
+
+@Composable
 fun GlassFamilyRulesSection() {
     var isExpanded by remember { mutableStateOf(false) }
 
@@ -345,35 +383,47 @@ fun GlassFamilyRulesSection() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Gavel, contentDescription = "Quy tắc", tint = Color(0xFFFBBF24), modifier = Modifier.size(20.dp))
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Gavel,
+                        contentDescription = stringResource(R.string.home_cd_rules),
+                        tint = AccentGold,
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "📜 Quy tắc chung của Gia đình",
+                        text = stringResource(R.string.home_rules_title),
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                         color = Color.White
                     )
                 }
-
                 Text(
-                    text = if (isExpanded) "Thu gọn ▲" else "Xem quy tắc ▼",
+                    text = stringResource(if (isExpanded) R.string.home_rules_collapse else R.string.home_rules_expand),
                     fontSize = 11.sp,
-                    color = Color(0xFF38BDF8)
+                    color = AccentBlue
                 )
             }
 
             if (isExpanded) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("1. ⏰ Hoàn thành nhiệm vụ việc nhà đúng hạn chót.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
-                Text("2. 📸 Chụp ảnh minh chứng rõ ràng khi báo cáo hoàn thành.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
-                Text("3. 🎁 Tích lũy đủ điểm thưởng để đổi quà cuối tuần.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
-                Text("4. ❤️ Luôn tôn trọng, lễ phép và sẵn sàng hỗ trợ lẫn nhau.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
+                listOf(
+                    R.string.home_rule_1,
+                    R.string.home_rule_2,
+                    R.string.home_rule_3,
+                    R.string.home_rule_4
+                ).forEach { rule ->
+                    Text(stringResource(rule), fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GlassFamilyMembersSection(
     members: List<User>,
@@ -393,14 +443,13 @@ fun GlassFamilyMembersSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "👨‍👩‍👧‍👦 Thành viên gia đình (${members.size}):",
+                text = stringResource(R.string.home_members_title, members.size),
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
                 color = Color.White
             )
-
             Text(
-                text = "Bấm để lọc",
+                text = stringResource(R.string.home_members_hint),
                 fontSize = 11.sp,
                 color = Color.White.copy(alpha = 0.6f)
             )
@@ -408,66 +457,73 @@ fun GlassFamilyMembersSection(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(members, key = { it.id }) { member ->
                 val isSelected = selectedFilter?.id == member.id
 
-                GlassCard(
-                    onClick = { onMemberClick(member) },
-                    cornerRadius = 14.dp,
-                    backgroundColor = if (isSelected) Color(0xFF0284C7).copy(alpha = 0.45f) else Color.White.copy(alpha = 0.12f),
-                    borderColor = if (isSelected) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.2f),
-                    modifier = Modifier.width(105.dp)
+                // Bấm = lọc việc theo thành viên; bấm giữ = xem chi tiết thành viên
+                Box(
+                    modifier = Modifier
+                        .width(105.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .combinedClickable(
+                            onClick = { onMemberClick(member) },
+                            onLongClick = { onMemberLongClick(member) }
+                        )
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    GlassCard(
+                        cornerRadius = 14.dp,
+                        backgroundColor = if (isSelected) PrimaryBlue.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.12f),
+                        borderColor = if (isSelected) AccentBlue else Color.White.copy(alpha = 0.2f),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Box(
+                        Column(
                             modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.2f))
-                                .border(
-                                    width = if (isSelected) 2.dp else 1.dp,
-                                    color = if (isSelected) Color(0xFF38BDF8) else Color.Transparent,
-                                    shape = CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(text = member.avatarUrl, fontSize = 22.sp)
-                        }
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.2f))
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) AccentBlue else Color.Transparent,
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = member.avatarUrl, fontSize = 22.sp)
+                            }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
-                        Text(
-                            text = member.name,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = Color.White,
-                            maxLines = 1
-                        )
-
-                        Text(
-                            text = if (member.role == UserRole.ADMIN) "Bố/Mẹ" else "Con",
-                            fontSize = 10.sp,
-                            color = if (member.role == UserRole.ADMIN) Color(0xFF38BDF8) else Color(0xFF4ADE80)
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        GlassBox(cornerRadius = 6.dp) {
                             Text(
-                                text = "⭐ ${member.points}pt",
-                                fontSize = 10.sp,
+                                text = member.name,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFBBF24),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                fontSize = 13.sp,
+                                color = Color.White,
+                                maxLines = 1
                             )
+                            Text(
+                                text = stringResource(if (member.role == UserRole.ADMIN) R.string.home_role_parent else R.string.home_role_child),
+                                fontSize = 10.sp,
+                                color = if (member.role == UserRole.ADMIN) AccentBlue else AccentGreen
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            GlassBox(cornerRadius = 6.dp) {
+                                Text(
+                                    text = stringResource(R.string.home_points_short, member.points),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentGold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -478,7 +534,7 @@ fun GlassFamilyMembersSection(
                     onClick = onInviteClick,
                     cornerRadius = 14.dp,
                     backgroundColor = Color.White.copy(alpha = 0.08f),
-                    borderColor = Color(0xFFFBBF24).copy(alpha = 0.5f),
+                    borderColor = AccentGold.copy(alpha = 0.5f),
                     modifier = Modifier.width(90.dp)
                 ) {
                     Column(
@@ -490,16 +546,16 @@ fun GlassFamilyMembersSection(
                     ) {
                         Icon(
                             Icons.Default.PersonAdd,
-                            contentDescription = "Thêm thành viên",
-                            tint = Color(0xFFFBBF24),
+                            contentDescription = stringResource(R.string.home_cd_add_member),
+                            tint = AccentGold,
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "+ Mời thêm",
+                            text = stringResource(R.string.home_invite_more),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFBBF24)
+                            color = AccentGold
                         )
                     }
                 }
@@ -536,27 +592,27 @@ fun MemberDetailDialog(
 
                 Text(member.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Text(
-                    text = if (member.role == UserRole.ADMIN) "Bố / Mẹ (Quản lý)" else "Con (Thành viên gia đình)",
+                    text = stringResource(
+                        if (member.role == UserRole.ADMIN) R.string.home_role_parent_long else R.string.home_role_child_long
+                    ),
                     fontSize = 13.sp,
                     color = Color.White.copy(alpha = 0.8f)
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     GlassBox(cornerRadius = 10.dp) {
                         Text(
-                            text = "⭐ ${member.points} điểm thưởng",
+                            text = stringResource(R.string.home_member_points, member.points),
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFBBF24),
+                            color = AccentGold,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
                     GlassBox(cornerRadius = 10.dp) {
                         Text(
-                            text = "📋 ${tasks.size} công việc",
+                            text = stringResource(R.string.home_member_task_count, tasks.size),
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -569,10 +625,10 @@ fun MemberDetailDialog(
                 if (currentUser?.role == UserRole.ADMIN) {
                     Button(
                         onClick = onCreateTaskForMember,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Giao Nhiệm Vụ Mới", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.home_assign_new_task), fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -582,7 +638,7 @@ fun MemberDetailDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Đóng", color = Color.White)
+                    Text(stringResource(R.string.home_close), color = Color.White)
                 }
             }
         }
@@ -636,7 +692,11 @@ fun GlassHeaderSection(
                             color = Color.White
                         )
                         Text(
-                            text = "Xin chào, $userName (${if (role == UserRole.ADMIN) "Bố/Mẹ" else "Con"})!",
+                            text = stringResource(
+                                R.string.home_greeting,
+                                userName,
+                                stringResource(if (role == UserRole.ADMIN) R.string.home_role_parent else R.string.home_role_child)
+                            ),
                             fontSize = 12.sp,
                             color = Color.White.copy(alpha = 0.8f)
                         )
@@ -651,8 +711,8 @@ fun GlassHeaderSection(
                     Spacer(modifier = Modifier.width(6.dp))
                     GlassBox {
                         Text(
-                            text = "⭐ $points pt",
-                            color = Color(0xFFFBBF24),
+                            text = stringResource(R.string.home_points_short, points),
+                            color = AccentGold,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
@@ -666,7 +726,7 @@ fun GlassHeaderSection(
             GlassBox(
                 cornerRadius = 14.dp,
                 backgroundColor = Color.White.copy(alpha = 0.18f),
-                borderColor = Color(0xFFFBBF24).copy(alpha = 0.6f),
+                borderColor = AccentGold.copy(alpha = 0.6f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onInviteClick)
@@ -680,16 +740,16 @@ fun GlassHeaderSection(
                 ) {
                     Column {
                         Text(
-                            text = "🔑 Mã Mời Tham Gia Gia Đình:",
+                            text = stringResource(R.string.home_invite_code_label),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White.copy(alpha = 0.9f)
                         )
                         Text(
-                            text = if (inviteCode.isNotEmpty()) inviteCode else "Đang tải...",
+                            text = inviteCode.ifEmpty { stringResource(R.string.home_loading) },
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFBBF24)
+                            color = AccentGold
                         )
                     }
 
@@ -698,13 +758,17 @@ fun GlassHeaderSection(
                             onClick = {
                                 if (inviteCode.isNotEmpty()) {
                                     clipboardManager.setText(AnnotatedString(inviteCode))
-                                    Toast.makeText(context, "Đã sao chép mã mời: $inviteCode", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.home_code_copied, inviteCode),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
                         ) {
                             Icon(
                                 Icons.Default.ContentCopy,
-                                contentDescription = "Sao chép mã mời",
+                                contentDescription = stringResource(R.string.home_cd_copy_code),
                                 tint = Color.White
                             )
                         }
@@ -712,8 +776,8 @@ fun GlassHeaderSection(
                         IconButton(onClick = onInviteClick) {
                             Icon(
                                 Icons.Default.QrCode,
-                                contentDescription = "Xem mã chi tiết",
-                                tint = Color(0xFF38BDF8)
+                                contentDescription = stringResource(R.string.home_cd_view_code),
+                                tint = AccentBlue
                             )
                         }
                     }
@@ -733,15 +797,13 @@ fun FamilyInviteDialog(
     val context = LocalContext.current
 
     Dialog(onDismissRequest = onDismiss) {
-        GlassCard(
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "🔑 Mã Mời Gia Đình",
+                    text = stringResource(R.string.home_invite_dialog_title),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -753,16 +815,14 @@ fun FamilyInviteDialog(
                     modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
                 )
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     inviteCode.forEach { char ->
                         GlassBox(cornerRadius = 10.dp) {
                             Text(
                                 text = char.toString(),
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFBBF24),
+                                color = AccentGold,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                             )
                         }
@@ -772,7 +832,7 @@ fun FamilyInviteDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Hướng dẫn cho thành viên mới:\n1. Mở app -> Chọn vai trò 'Con' hoặc 'Thành viên'\n2. Chọn 'Tham gia gia đình sẵn có'\n3. Nhập 6 chữ số trên để vào nhóm!",
+                    text = stringResource(R.string.home_invite_instructions),
                     fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.85f)
                 )
@@ -782,14 +842,18 @@ fun FamilyInviteDialog(
                 Button(
                     onClick = {
                         clipboardManager.setText(AnnotatedString(inviteCode))
-                        Toast.makeText(context, "Đã sao chép mã mời gia đình: $inviteCode", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.home_code_copied, inviteCode),
+                            Toast.LENGTH_SHORT
+                        ).show()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = "Sao chép mã")
+                    Icon(Icons.Default.ContentCopy, contentDescription = stringResource(R.string.home_cd_copy_code))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("📋 Sao Chép Mã Mời", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.home_copy_code), fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -799,7 +863,7 @@ fun FamilyInviteDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Đóng", color = Color.White)
+                    Text(stringResource(R.string.home_close), color = Color.White)
                 }
             }
         }
@@ -856,9 +920,10 @@ fun GlassTaskItemCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "👤 ${assigneeDisplayName(task)} • 🎁 +${task.points}pt",
+                    text = stringResource(R.string.home_task_meta, assigneeDisplayName(task), task.points),
                     fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.8f)
+                    color = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.weight(1f, fill = false)
                 )
 
                 Row(
