@@ -196,4 +196,8 @@
         <item>Sa</item>
         <item>Su</item>
     </string-array>
+
+    <!-- OTP mô phỏng (Trường gọi từ LoginViewModel) -->
+    <string name="noti_otp_title">🔐 Verification code (simulated email)</string>
+    <string name="noti_otp_message">The OTP for %1$s is: %2$s. Valid for 5 minutes.</string>
 </resources>
