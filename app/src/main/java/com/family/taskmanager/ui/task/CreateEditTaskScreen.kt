@@ -4,6 +4,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import android.app.DatePickerDialog
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +27,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -50,6 +52,8 @@ import androidx.compose.ui.unit.sp
 import com.family.taskmanager.R
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.User
+import com.family.taskmanager.data.repository.TaskActionResult
+import com.family.taskmanager.data.repository.TaskRepository
 import com.family.taskmanager.ui.home.HomeViewModel
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -66,6 +70,10 @@ fun CreateEditTaskScreen(
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var pointsText by rememberSaveable { mutableStateOf("10") }
+    // Đang lưu -> khóa nút để không tạo trùng; chỉ quay về khi tạo THÀNH CÔNG
+    var isSaving by remember { mutableStateOf(false) }
+    val points = pointsText.toIntOrNull()
+    val pointsValid = points != null && points in 0..TaskRepository.MAX_TASK_POINTS
     var selectedPriority by rememberSaveable { mutableStateOf(TaskPriority.MEDIUM) }
     
     // Hạn chót mặc định: 23:59 ngày mai
@@ -174,7 +182,7 @@ fun CreateEditTaskScreen(
                     readOnly = true,
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAssignee) },
                     modifier = Modifier
-                        .menuAnchor()
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
                         .fillMaxWidth()
                 )
                 ExposedDropdownMenu(
@@ -235,9 +243,16 @@ fun CreateEditTaskScreen(
 
             OutlinedTextField(
                 value = pointsText,
-                onValueChange = { pointsText = it.filter { char -> char.isDigit() } },
+                // Giới hạn 6 chữ số để không tràn số; điểm hợp lệ: 0..MAX_TASK_POINTS (giống TaskRepository)
+                onValueChange = { pointsText = it.filter { char -> char.isDigit() }.take(6) },
                 label = { Text(stringResource(R.string.task_points_hint)) },
                 singleLine = true,
+                isError = !pointsValid,
+                supportingText = {
+                    if (!pointsValid) {
+                        Text(stringResource(R.string.tk_form_points_error, TaskRepository.MAX_TASK_POINTS))
+                    }
+                },
                 // Bàn phím số, Enter = đóng bàn phím
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                 modifier = Modifier.fillMaxWidth()
@@ -293,23 +308,32 @@ fun CreateEditTaskScreen(
 
             Button(
                 onClick = {
-                    val points = pointsText.toIntOrNull() ?: 10
+                    isSaving = true
                     viewModel.createTask(
                         title = title,
                         description = description,
                         assignedToUser = selectedAssignee,
                         priority = selectedPriority,
-                        points = points,
+                        points = points ?: 0,
                         deadlineTimestamp = selectedDeadlineTimestamp
-                    )
-                    onBack()
+                    ) { result ->
+                        isSaving = false
+                        if (result == TaskActionResult.SUCCESS) {
+                            onBack()
+                        } else {
+                            Toast.makeText(context, context.getString(result.messageRes()), Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 },
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && pointsValid && !isSaving,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
-                Text(stringResource(R.string.btn_create_and_assign), fontSize = 16.sp)
+                Text(
+                    stringResource(if (isSaving) R.string.tk_form_saving else R.string.btn_create_and_assign),
+                    fontSize = 16.sp
+                )
             }
         }
     }

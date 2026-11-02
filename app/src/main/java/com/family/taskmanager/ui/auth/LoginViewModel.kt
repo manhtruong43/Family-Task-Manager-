@@ -1,7 +1,9 @@
 package com.family.taskmanager.ui.auth
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.family.taskmanager.R
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.repository.UserRepository
@@ -15,6 +17,16 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
+/**
+ * Thông báo cho màn đăng nhập dưới dạng MÃ chuỗi tài nguyên (không phải chữ cứng)
+ * để đổi Tiếng Việt / English là đổi theo, và giao diện biết chắc đây là lỗi hay thông tin.
+ */
+data class AuthMessage(
+    @StringRes val res: Int,
+    val args: List<String> = emptyList(),
+    val isError: Boolean = true
+)
+
 sealed class AuthState {
     object Idle : AuthState()
     object Loading : AuthState()
@@ -22,10 +34,10 @@ sealed class AuthState {
         val pendingUser: User,
         val otpCode: String,
         val isRegister: Boolean,
-        val message: String = ""
+        val message: AuthMessage? = null
     ) : AuthState()
     data class Success(val user: User) : AuthState()
-    data class Error(val message: String) : AuthState()
+    data class Error(val message: AuthMessage) : AuthState()
 }
 
 @HiltViewModel
@@ -39,8 +51,10 @@ class LoginViewModel @Inject constructor(
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
     companion object {
-        // Biểu thức chính quy kiểm tra định dạng email chuẩn RFC và hỗ trợ Gmail / các nhà cung cấp phổ biến
+        // Biểu thức chính quy kiểm tra định dạng email chuẩn (Gmail và các nhà cung cấp phổ biến)
         private val EMAIL_REGEX = Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+        const val OTP_LENGTH = 6
+        const val MIN_NAME_LENGTH = 2
 
         fun isValidEmail(email: String): Boolean {
             val trimmed = email.trim()
@@ -54,89 +68,70 @@ class LoginViewModel @Inject constructor(
         }
     }
 
+    private fun fail(@StringRes res: Int, vararg args: String) {
+        _authState.value = AuthState.Error(AuthMessage(res, args.toList()))
+    }
+
     /**
-     * Luồng ĐĂNG NHẬP (Đã khắc phục lỗi bảo mật & validate nghiêm ngặt):
-     * - Kiểm tra định dạng Email hợp lệ chuẩn xác.
-     * - Kiểm tra Email có tồn tại trong hệ thống hay không.
-     * - Bắt buộc Tên đăng nhập (Họ và tên) và Email phải khớp chính xác với tài khoản đã đăng ký (tránh trường hợp sai tên vẫn đăng nhập được).
-     * - Nếu chưa xác thực OTP, yêu cầu xác thực OTP email mô phỏng.
+     * Luồng ĐĂNG NHẬP:
+     * - Kiểm tra định dạng Email.
+     * - Email phải tồn tại và Họ tên phải khớp với tài khoản đã đăng ký.
+     * - Nếu tài khoản chưa xác thực email -> yêu cầu nhập OTP mô phỏng.
      */
     fun login(name: String, email: String) {
         val cleanName = name.trim()
         val cleanEmail = email.lowercase().trim()
 
-        if (cleanName.isBlank()) {
-            _authState.value = AuthState.Error("Vui lòng nhập họ và tên đăng nhập!")
-            return
-        }
-        if (cleanEmail.isBlank()) {
-            _authState.value = AuthState.Error("Vui lòng nhập địa chỉ Email!")
-            return
-        }
-        if (!isValidEmail(cleanEmail)) {
-            _authState.value = AuthState.Error("Địa chỉ Email không đúng định dạng! (Ví dụ: tenban@gmail.com)")
-            return
+        when {
+            cleanName.isBlank() -> return fail(R.string.auth_err_name_required)
+            cleanEmail.isBlank() -> return fail(R.string.auth_err_email_required)
+            !isValidEmail(cleanEmail) -> return fail(R.string.auth_err_email_invalid)
         }
 
         viewModelScope.launch {
             _authState.value = AuthState.Loading
 
-            // 1. Kiểm tra xem Email đã tồn tại chưa
-            val existingUserByEmail = userRepository.getUserByEmailSync(cleanEmail)
-            if (existingUserByEmail == null) {
-                _authState.value = AuthState.Error(
-                    "Email '$cleanEmail' chưa được đăng ký trong hệ thống!\nVui lòng chuyển sang tab 'Đăng ký' để tạo tài khoản mới."
-                )
+            val existingUser = userRepository.getUserByEmailSync(cleanEmail)
+            if (existingUser == null) {
+                fail(R.string.auth_err_email_not_registered, cleanEmail)
                 return@launch
             }
 
-            // 2. Kiểm tra nghiêm ngặt: Tên đăng nhập (Họ và tên) phải khớp chính xác với tài khoản của email này
-            if (!existingUserByEmail.name.trim().equals(cleanName, ignoreCase = true)) {
-                _authState.value = AuthState.Error(
-                    "Tên đăng nhập (Họ và tên) không chính xác với email '$cleanEmail'!\n(Tài khoản đăng ký với email này là: '${existingUserByEmail.name}')"
-                )
+            // Tên đăng nhập phải khớp với tài khoản của email này
+            if (!existingUser.name.trim().equals(cleanName, ignoreCase = true)) {
+                fail(R.string.auth_err_name_mismatch, cleanEmail)
                 return@launch
             }
 
-            // 3. Nếu tài khoản chưa xác thực email, yêu cầu nhập OTP mô phỏng
-            if (!existingUserByEmail.isEmailVerified) {
+            if (!existingUser.isEmailVerified) {
                 val otpCode = emailVerificationService.sendVerificationOtp(cleanEmail)
                 pushNotificationService.sendOtpNotification(cleanEmail, otpCode)
                 _authState.value = AuthState.OtpSent(
-                    pendingUser = existingUserByEmail,
+                    pendingUser = existingUser,
                     otpCode = otpCode,
                     isRegister = false,
-                    message = "Tài khoản chưa được kích hoạt. Mã OTP đã được gửi tới email của bạn!"
+                    message = AuthMessage(R.string.auth_info_not_activated, isError = false)
                 )
                 return@launch
             }
 
-            // 4. Đăng nhập thành công
-            _authState.value = AuthState.Success(existingUserByEmail)
+            _authState.value = AuthState.Success(existingUser)
         }
     }
 
     /**
      * Luồng ĐĂNG KÝ:
-     * - Validate Họ tên (ít nhất 2 ký tự), Email (đúng định dạng chuẩn).
-     * - Kiểm tra xem Email đã tồn tại trong hệ thống chưa.
-     * - Sinh mã OTP mô phỏng và gửi notification.
+     * - Họ tên ít nhất 2 ký tự, Email đúng định dạng và chưa được dùng.
+     * - Sinh mã OTP mô phỏng và gửi thông báo.
      */
     fun register(name: String, email: String, role: UserRole, avatarUrl: String) {
         val cleanName = name.trim()
         val cleanEmail = email.lowercase().trim()
 
-        if (cleanName.isBlank() || cleanName.length < 2) {
-            _authState.value = AuthState.Error("Họ và tên phải có ít nhất 2 ký tự!")
-            return
-        }
-        if (cleanEmail.isBlank()) {
-            _authState.value = AuthState.Error("Vui lòng nhập địa chỉ Email!")
-            return
-        }
-        if (!isValidEmail(cleanEmail)) {
-            _authState.value = AuthState.Error("Địa chỉ Email không đúng định dạng! (Ví dụ: tenban@gmail.com)")
-            return
+        when {
+            cleanName.length < MIN_NAME_LENGTH -> return fail(R.string.auth_err_name_too_short)
+            cleanEmail.isBlank() -> return fail(R.string.auth_err_email_required)
+            !isValidEmail(cleanEmail) -> return fail(R.string.auth_err_email_invalid)
         }
 
         viewModelScope.launch {
@@ -144,15 +139,13 @@ class LoginViewModel @Inject constructor(
 
             val existingUser = userRepository.getUserByEmailSync(cleanEmail)
             if (existingUser != null) {
-                _authState.value = AuthState.Error(
-                    "Email '$cleanEmail' đã được đăng ký tài khoản bởi '${existingUser.name}'.\nVui lòng chuyển sang tab 'Đăng nhập'!"
-                )
+                // Không hiện tên chủ tài khoản: tránh lộ thông tin người khác
+                fail(R.string.auth_err_email_taken, cleanEmail)
                 return@launch
             }
 
-            val userId = UUID.nameUUIDFromBytes(cleanEmail.toByteArray()).toString()
             val pendingUser = User(
-                id = userId,
+                id = UUID.nameUUIDFromBytes(cleanEmail.toByteArray()).toString(),
                 name = cleanName,
                 email = cleanEmail,
                 role = role,
@@ -167,34 +160,28 @@ class LoginViewModel @Inject constructor(
                 pendingUser = pendingUser,
                 otpCode = otpCode,
                 isRegister = true,
-                message = "Mã OTP xác thực tài khoản đã được gửi tới email mô phỏng!"
+                message = AuthMessage(R.string.auth_info_otp_sent, isError = false)
             )
         }
     }
 
-    /**
-     * Xác nhận mã OTP do người dùng nhập.
-     */
+    /** Xác nhận mã OTP người dùng nhập. */
     fun verifyOtp(inputCode: String) {
         val currentState = _authState.value
         if (currentState !is AuthState.OtpSent) {
-            _authState.value = AuthState.Error("Phiên xác thực không hợp lệ. Vui lòng thử lại!")
+            fail(R.string.auth_err_session_invalid)
             return
         }
 
         val cleanCode = inputCode.trim()
-        if (cleanCode.length != 6) {
-            _authState.value = currentState.copy(message = "Mã OTP phải gồm 6 chữ số!")
+        if (cleanCode.length != OTP_LENGTH) {
+            _authState.value = currentState.copy(message = AuthMessage(R.string.auth_err_otp_length))
             return
         }
 
         val email = currentState.pendingUser.email
-        val isVerified = emailVerificationService.verifyOtp(email, cleanCode)
-
-        if (!isVerified) {
-            _authState.value = currentState.copy(
-                message = "Mã OTP không chính xác hoặc đã hết hạn (5 phút). Vui lòng thử lại!"
-            )
+        if (!emailVerificationService.verifyOtp(email, cleanCode)) {
+            _authState.value = currentState.copy(message = AuthMessage(R.string.auth_err_otp_wrong))
             return
         }
 
@@ -212,9 +199,7 @@ class LoginViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Gửi lại mã OTP mới khi hết hạn hoặc chưa nhận được.
-     */
+    /** Gửi lại mã OTP mới khi hết hạn hoặc chưa nhận được. */
     fun resendOtp() {
         val currentState = _authState.value
         if (currentState !is AuthState.OtpSent) return
@@ -226,14 +211,12 @@ class LoginViewModel @Inject constructor(
 
             _authState.value = currentState.copy(
                 otpCode = newOtp,
-                message = "Đã gửi lại mã OTP mới tới email của bạn!"
+                message = AuthMessage(R.string.auth_info_otp_resent, isError = false)
             )
         }
     }
 
-    /**
-     * Hủy xác thực OTP và quay lại form nhập liệu.
-     */
+    /** Hủy xác thực OTP và quay lại form nhập liệu. */
     fun cancelOtp() {
         _authState.value = AuthState.Idle
     }

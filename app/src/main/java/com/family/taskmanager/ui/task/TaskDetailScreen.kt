@@ -3,6 +3,7 @@ package com.family.taskmanager.ui.task
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -59,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -70,7 +72,9 @@ import com.family.taskmanager.R
 import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.TaskStatus
-import com.family.taskmanager.data.model.UserRole
+import com.family.taskmanager.data.repository.ProofImageStorage
+import com.family.taskmanager.data.repository.TaskActionResult
+import com.family.taskmanager.data.repository.TaskPermissions
 import com.family.taskmanager.ui.home.HomeViewModel
 import com.family.taskmanager.ui.theme.GlassBox
 import com.family.taskmanager.ui.theme.GlassCard
@@ -87,6 +91,15 @@ fun TaskDetailScreen(
     val task = tasks.find { it.id == taskId }
     val currentUser by viewModel.currentUser.collectAsState()
     val reactions by viewModel.getTaskReactions(taskId).collectAsState()
+    val isSubmittingProof by viewModel.isSubmittingProof.collectAsState()
+    val context = LocalContext.current
+
+    // Hiện thông báo ngắn khi thao tác bị từ chối (không có quyền, sai trạng thái...)
+    val showResult: (TaskActionResult) -> Unit = { result ->
+        if (result != TaskActionResult.SUCCESS) {
+            Toast.makeText(context, context.getString(result.messageRes()), Toast.LENGTH_SHORT).show()
+        }
+    }
 
     var proofNote by rememberSaveable { mutableStateOf("") }
     val selectedImageUris = remember { mutableStateListOf<Uri>() }
@@ -99,8 +112,10 @@ fun TaskDetailScreen(
     val multiImagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
-        if (uris.isNotEmpty()) {
-            selectedImageUris.addAll(uris)
+        // Giới hạn số ảnh mỗi lần nộp để không tốn bộ nhớ máy
+        val room = ProofImageStorage.MAX_IMAGES_PER_PROOF - selectedImageUris.size
+        if (uris.isNotEmpty() && room > 0) {
+            selectedImageUris.addAll(uris.take(room))
         }
     }
 
@@ -137,6 +152,13 @@ fun TaskDetailScreen(
                     Text(stringResource(R.string.task_not_found), color = Color.White)
                 }
             } else {
+                // Phân quyền: chỉ người được giao mới làm / nộp minh chứng; chỉ Bố/Mẹ cùng nhà mới duyệt
+                val canWork = TaskPermissions.canWork(currentUser, task)
+                val canReview = TaskPermissions.canReview(currentUser, task)
+                val isOpenTask = task.status == TaskStatus.TODO ||
+                        task.status == TaskStatus.IN_PROGRESS ||
+                        task.status == TaskStatus.REJECTED
+
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -260,15 +282,16 @@ fun TaskDetailScreen(
                     }
 
                     // Admin duyệt việc khi có báo cáo
-                    if (currentUser?.role == UserRole.ADMIN && task.status == TaskStatus.PENDING_APPROVAL) {
+                    if (canReview && task.status == TaskStatus.PENDING_APPROVAL) {
                         Text(stringResource(R.string.task_review_section), color = Color.White, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Row(modifier = Modifier.fillMaxWidth()) {
                             Button(
                                 onClick = {
-                                    viewModel.approveTask(task)
-                                    onBack()
+                                    viewModel.approveTask(task) { result ->
+                                        if (result == TaskActionResult.SUCCESS) onBack() else showResult(result)
+                                    }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22C55E)),
                                 modifier = Modifier
@@ -282,8 +305,9 @@ fun TaskDetailScreen(
 
                             OutlinedButton(
                                 onClick = {
-                                    viewModel.rejectTask(task)
-                                    onBack()
+                                    viewModel.rejectTask(task) { result ->
+                                        if (result == TaskActionResult.SUCCESS) onBack() else showResult(result)
+                                    }
                                 },
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF87171)),
                                 modifier = Modifier
@@ -297,11 +321,24 @@ fun TaskDetailScreen(
                         Spacer(modifier = Modifier.height(20.dp))
                     }
 
-                    // Nút chuyển trạng thái sang "Đang làm" (IN_PROGRESS)
-                    if (task.status == TaskStatus.TODO || task.status == TaskStatus.REJECTED) {
+                    // Việc của người khác: chỉ xem, giải thích vì sao không có nút thao tác
+                    if (isOpenTask && !canWork) {
+                        GlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = stringResource(R.string.tk_detail_not_yours, assigneeDisplayName(task)),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+
+                    // Nút chuyển trạng thái sang "Đang làm" (IN_PROGRESS) - chỉ người được giao
+                    if (canWork && (task.status == TaskStatus.TODO || task.status == TaskStatus.REJECTED)) {
                         Button(
                             onClick = {
-                                viewModel.startTask(task.id)
+                                viewModel.startTask(task.id, showResult)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
                             modifier = Modifier
@@ -348,18 +385,20 @@ fun TaskDetailScreen(
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
-                                TextButton(
-                                    onClick = { viewModel.resetTaskToTodo(task.id) }
-                                ) {
-                                    Text(stringResource(R.string.btn_reset_todo), fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f))
+                                if (canWork) {
+                                    TextButton(
+                                        onClick = { viewModel.resetTaskToTodo(task.id, showResult) }
+                                    ) {
+                                        Text(stringResource(R.string.btn_reset_todo), fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f))
+                                    }
                                 }
                             }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                     }
 
-                    // KHU VỰC BÁO CÁO & UPLOAD NHIỀU ẢNH MINH CHỨNG
-                    if (task.status == TaskStatus.TODO || task.status == TaskStatus.IN_PROGRESS || task.status == TaskStatus.REJECTED) {
+                    // KHU VỰC BÁO CÁO & UPLOAD NHIỀU ẢNH MINH CHỨNG - chỉ người được giao
+                    if (canWork && isOpenTask) {
                         GlassCard(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
@@ -457,22 +496,37 @@ fun TaskDetailScreen(
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
+                                // Bắt buộc có ít nhất 1 ảnh minh chứng (không còn link ảnh giả)
+                                if (selectedImageUris.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.tk_detail_need_photo, ProofImageStorage.MAX_IMAGES_PER_PROOF),
+                                        color = Color(0xFFFBBF24),
+                                        fontSize = 12.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+
                                 Button(
                                     onClick = {
-                                        val combinedProofUrls = if (selectedImageUris.isNotEmpty()) {
-                                            selectedImageUris.joinToString(",") { it.toString() }
-                                        } else {
-                                            "https://placeholder.com/proof.jpg"
+                                        viewModel.submitTaskProof(task.id, selectedImageUris.toList(), proofNote) { result ->
+                                            if (result == TaskActionResult.SUCCESS) onBack() else showResult(result)
                                         }
-                                        viewModel.submitTaskProof(task.id, combinedProofUrls, proofNote)
-                                        onBack()
                                     },
+                                    enabled = selectedImageUris.isNotEmpty() && !isSubmittingProof,
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22C55E)),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(50.dp)
                                 ) {
-                                    Text(stringResource(R.string.btn_submit_proof, selectedImageUris.size), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = if (isSubmittingProof) {
+                                            stringResource(R.string.tk_detail_submitting)
+                                        } else {
+                                            stringResource(R.string.btn_submit_proof, selectedImageUris.size)
+                                        },
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -605,3 +659,13 @@ fun priorityLabel(priority: TaskPriority): String = stringResource(
         TaskPriority.HIGH -> R.string.priority_high
     }
 )
+
+/** Thông báo tương ứng với kết quả thao tác nhiệm vụ. */
+fun TaskActionResult.messageRes(): Int = when (this) {
+    TaskActionResult.SUCCESS -> R.string.tk_result_success
+    TaskActionResult.NOT_ALLOWED -> R.string.tk_result_not_allowed
+    TaskActionResult.INVALID_STATE -> R.string.tk_result_invalid_state
+    TaskActionResult.NOT_FOUND -> R.string.tk_result_not_found
+    TaskActionResult.NO_PROOF -> R.string.tk_result_no_proof
+    TaskActionResult.INVALID_INPUT -> R.string.tk_result_invalid_input
+}

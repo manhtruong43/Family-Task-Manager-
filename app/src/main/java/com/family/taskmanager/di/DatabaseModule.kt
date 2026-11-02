@@ -3,6 +3,7 @@ package com.family.taskmanager.di
 import android.content.Context
 import androidx.room.Room
 import com.family.taskmanager.data.local.AppDatabase
+import com.family.taskmanager.data.local.AppMigrations
 import com.family.taskmanager.data.local.FamilyDao
 import com.family.taskmanager.data.local.NotificationDao
 import com.family.taskmanager.data.local.RewardDao
@@ -30,7 +31,12 @@ object DatabaseModule {
             AppDatabase::class.java,
             "family_task_db"
         )
-            .fallbackToDestructiveMigration()
+            // Giữ dữ liệu khi nâng cấp: mỗi lần tăng version phải có Migration trong AppMigrations.
+            .addMigrations(*AppMigrations.ALL)
+            // Chỉ các bản DB thời còn phát triển (1-3) mới được xóa đi tạo lại
+            .fallbackToDestructiveMigrationFrom(*AppMigrations.LEGACY_DEV_VERSIONS)
+            // Cài bản app cũ hơn đè lên (hay gặp khi đổi nhánh git lúc phát triển) -> tạo lại DB thay vì crash
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
 

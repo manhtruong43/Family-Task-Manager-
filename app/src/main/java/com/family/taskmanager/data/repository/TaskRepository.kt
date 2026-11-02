@@ -1,6 +1,8 @@
 package com.family.taskmanager.data.repository
 
+import android.content.Context
 import androidx.room.withTransaction
+import com.family.taskmanager.R
 import com.family.taskmanager.data.local.AppDatabase
 import com.family.taskmanager.data.local.NotificationDao
 import com.family.taskmanager.data.local.TaskDao
@@ -13,13 +15,22 @@ import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.service.PushNotificationService
+import com.family.taskmanager.data.service.ServiceLocale
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Nghiệp vụ nhiệm vụ: tạo, bắt đầu, nộp minh chứng, duyệt, từ chối.
+ *
+ * Mọi thao tác thay đổi dữ liệu đều nhận [User] đang thao tác (actor) và kiểm tra quyền
+ * bằng [TaskPermissions] trên dữ liệu MỚI NHẤT trong DB - không tin việc giao diện đã ẩn nút.
+ */
 @Singleton
 class TaskRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val database: AppDatabase,
     private val taskDao: TaskDao,
     private val userDao: UserDao,
@@ -27,6 +38,11 @@ class TaskRepository @Inject constructor(
     private val taskReactionDao: TaskReactionDao,
     private val pushNotificationService: PushNotificationService
 ) {
+    companion object {
+        const val MAX_TASK_POINTS = 100_000
+        private val SUBMITTABLE_STATUSES = setOf(TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REJECTED)
+    }
+
     fun getTasksByFamily(familyId: String): Flow<List<Task>> =
         taskDao.getTasksByFamily(familyId)
 
@@ -55,168 +71,222 @@ class TaskRepository @Inject constructor(
         }
     }
 
-    suspend fun createTask(task: Task) {
+    // ─────────────────────────── Tạo nhiệm vụ (Admin) ───────────────────────────
+
+    suspend fun createTask(task: Task, actor: User): TaskActionResult {
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
+        if (!TaskPermissions.canCreate(freshActor) || task.familyId != freshActor.familyId) {
+            return TaskActionResult.NOT_ALLOWED
+        }
+        if (task.title.isBlank() || task.points !in 0..MAX_TASK_POINTS) {
+            return TaskActionResult.INVALID_INPUT
+        }
+
         taskDao.insertTask(task)
-        if (task.assignedToUserId.isNotEmpty()) {
-            val notifTitle = "📋 Nhiệm vụ mới!"
-            val notifMessage = "Bạn vừa được giao: ${task.title} (+${task.points} điểm)"
-            notificationDao.insertNotification(
-                NotificationItem(
-                    id = UUID.randomUUID().toString(),
-                    userId = task.assignedToUserId,
-                    title = notifTitle,
-                    message = notifMessage
-                )
-            )
-            pushNotificationService.sendTaskNotification(notifTitle, notifMessage)
+
+        val res = ServiceLocale.localizedContext(context)
+        val receivers = if (task.assignedToUserId.isNotEmpty()) {
+            listOf(task.assignedToUserId)
+        } else {
+            // Việc giao cho cả nhà -> báo cho tất cả các Con
+            userDao.getUsersByRoleSync(task.familyId, UserRole.MEMBER).map { it.id }
         }
+        val title = res.getString(R.string.tk_noti_new_title)
+        val message = res.getString(
+            if (task.assignedToUserId.isNotEmpty()) R.string.tk_noti_new_message else R.string.tk_noti_new_all_message,
+            task.title,
+            task.points
+        )
+        notifyUsers(receivers, title, message)
+        return TaskActionResult.SUCCESS
     }
 
+    // ─────────────────────────── Người được giao ───────────────────────────
+
     /**
-     * Chuyển nhiệm vụ sang "Đang làm".
-     * Chỉ hợp lệ khi task đang ở TODO hoặc REJECTED. Mỗi lệnh UPDATE đều có điều kiện
-     * nên không thể vô tình kéo một task đã PENDING_APPROVAL / COMPLETED quay về IN_PROGRESS.
-     * @return true nếu trạng thái thực sự được thay đổi.
+     * Chuyển nhiệm vụ sang "Đang làm". Chỉ người được giao, và chỉ từ TODO / REJECTED.
+     * Lệnh UPDATE có điều kiện nên không thể kéo một task đã chờ duyệt / hoàn thành quay lại.
      */
-    suspend fun startTask(taskId: String): Boolean {
+    suspend fun startTask(taskId: String, actor: User): TaskActionResult {
+        val check = checkWorker(taskId, actor)
+        if (check != TaskActionResult.SUCCESS) return check
+
         val fromTodo = taskDao.updateTaskStatusConditional(taskId, TaskStatus.TODO, TaskStatus.IN_PROGRESS)
-        if (fromTodo > 0) return true
+        if (fromTodo > 0) return TaskActionResult.SUCCESS
         val fromRejected = taskDao.updateTaskStatusConditional(taskId, TaskStatus.REJECTED, TaskStatus.IN_PROGRESS)
-        return fromRejected > 0
+        return if (fromRejected > 0) TaskActionResult.SUCCESS else TaskActionResult.INVALID_STATE
+    }
+
+    /** Đặt lại về "Chưa làm" - chỉ người được giao, chỉ khi đang IN_PROGRESS. */
+    suspend fun resetTaskToTodo(taskId: String, actor: User): TaskActionResult {
+        val check = checkWorker(taskId, actor)
+        if (check != TaskActionResult.SUCCESS) return check
+
+        val updated = taskDao.updateTaskStatusConditional(taskId, TaskStatus.IN_PROGRESS, TaskStatus.TODO)
+        return if (updated > 0) TaskActionResult.SUCCESS else TaskActionResult.INVALID_STATE
     }
 
     /**
-     * Đặt lại nhiệm vụ về "Chưa làm" – chỉ hợp lệ khi task đang IN_PROGRESS.
-     * @return true nếu trạng thái thực sự được thay đổi.
+     * Nộp minh chứng. [proofUrl] là danh sách đường dẫn ảnh (đã chép vào bộ nhớ của app),
+     * ngăn cách bằng dấu phẩy - bắt buộc có ít nhất 1 ảnh.
      */
-    suspend fun resetTaskToTodo(taskId: String): Boolean =
-        taskDao.updateTaskStatusConditional(taskId, TaskStatus.IN_PROGRESS, TaskStatus.TODO) > 0
+    suspend fun submitTaskProof(taskId: String, proofUrl: String, note: String, actor: User): TaskActionResult {
+        if (proofUrl.split(",").none { it.isNotBlank() }) return TaskActionResult.NO_PROOF
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
 
-    suspend fun submitTaskProof(taskId: String, proofUrl: String, note: String, user: User? = null) {
-        // Đọc + ghi trong cùng một transaction để 2 lần bấm "Gửi" liên tiếp không tạo 2 lượt thông báo
-        val updatedTask = database.withTransaction {
-            val task = taskDao.getTaskById(taskId) ?: return@withTransaction null
-            // Chỉ cho nộp minh chứng khi task chưa nộp / đang làm / bị từ chối
-            if (task.status !in SUBMITTABLE_STATUSES) return@withTransaction null
-
-            // Task giao cho "Tất cả" được nhận diện bằng assignedToUserId rỗng (không so chuỗi hiển thị)
-            val isUnassigned = task.assignedToUserId.isEmpty()
-            task.copy(
-                status = TaskStatus.PENDING_APPROVAL,
-                proofImageUrl = proofUrl,
-                proofNote = note,
-                assignedToUserId = if (isUnassigned && user != null) user.id else task.assignedToUserId,
-                assignedToUserName = if (isUnassigned && user != null) user.name else task.assignedToUserName
-            ).also { taskDao.updateTask(it) }
-        } ?: return
-
-        val submitterName = user?.name ?: updatedTask.assignedToUserName.ifEmpty { "Thành viên" }
-        val submitterId = user?.id ?: updatedTask.assignedToUserId
-
-        // Báo cho Admin (Bố/Mẹ) khi Member hoàn thành việc và nộp minh chứng
-        val familyId = updatedTask.familyId
-        val taskTitle = updatedTask.title
-        val notifTitle = "📸 Minh chứng mới cần duyệt"
-        val notifMessage = "$submitterName đã nộp minh chứng cho việc: '$taskTitle'. Vui lòng kiểm tra và phê duyệt!"
-
-        val admins = if (familyId.isNotEmpty()) {
-            userDao.getUsersByRoleSync(familyId, UserRole.ADMIN)
-        } else emptyList()
-
-        val recipientAdminIds = admins.map { it.id }.toMutableSet()
-        val creatorId = updatedTask.createdByUserId
-        if (creatorId.isNotEmpty()) {
-            recipientAdminIds.add(creatorId)
+        // Đọc + kiểm tra quyền + ghi trong cùng một transaction: 2 lần bấm "Gửi" liên tiếp
+        // không tạo 2 lượt nộp, và không ai chen vào giữa lúc kiểm tra và lúc ghi.
+        var result = TaskActionResult.SUCCESS
+        val updatedTask = database.withTransaction<Task?> {
+            val task = taskDao.getTaskById(taskId)
+            when {
+                task == null -> {
+                    result = TaskActionResult.NOT_FOUND
+                    null
+                }
+                !TaskPermissions.canWork(freshActor, task) -> {
+                    result = TaskActionResult.NOT_ALLOWED
+                    null
+                }
+                task.status !in SUBMITTABLE_STATUSES -> {
+                    result = TaskActionResult.INVALID_STATE
+                    null
+                }
+                else -> {
+                    // Việc của cả nhà: người nộp trở thành người thực hiện (và là người nhận điểm)
+                    val isUnassigned = task.assignedToUserId.isEmpty()
+                    val updated = task.copy(
+                        status = TaskStatus.PENDING_APPROVAL,
+                        proofImageUrl = proofUrl,
+                        proofNote = note.trim(),
+                        assignedToUserId = if (isUnassigned) freshActor.id else task.assignedToUserId,
+                        assignedToUserName = if (isUnassigned) freshActor.name else task.assignedToUserName
+                    )
+                    taskDao.updateTask(updated)
+                    updated
+                }
+            }
         }
-        if (submitterId.isNotEmpty()) {
-            recipientAdminIds.remove(submitterId)
-        }
+        if (updatedTask == null) return result
 
-        recipientAdminIds.forEach { adminId ->
-            notificationDao.insertNotification(
-                NotificationItem(
-                    id = UUID.randomUUID().toString(),
-                    userId = adminId,
-                    title = notifTitle,
-                    message = notifMessage
-                )
-            )
-        }
+        // Báo cho Bố/Mẹ (và người tạo việc) có minh chứng mới cần duyệt
+        val res = ServiceLocale.localizedContext(context)
+        val recipients = userDao.getUsersByRoleSync(updatedTask.familyId, UserRole.ADMIN)
+            .map { it.id }
+            .toMutableSet()
+        if (updatedTask.createdByUserId.isNotEmpty()) recipients.add(updatedTask.createdByUserId)
+        recipients.remove(freshActor.id)
 
-        if (recipientAdminIds.isNotEmpty()) {
-            pushNotificationService.sendTaskNotification(notifTitle, notifMessage)
-        }
+        notifyUsers(
+            recipients.toList(),
+            res.getString(R.string.tk_noti_proof_title),
+            res.getString(R.string.tk_noti_proof_message, freshActor.name, updatedTask.title)
+        )
+        return TaskActionResult.SUCCESS
     }
 
-    suspend fun approveTask(task: Task) {
+    // ─────────────────────────── Bố/Mẹ duyệt ───────────────────────────
+
+    suspend fun approveTask(task: Task, actor: User): TaskActionResult {
+        val check = checkReviewer(task.id, actor)
+        if (check != TaskActionResult.SUCCESS) return check
+
         // Đổi trạng thái + cộng điểm + ghi thông báo trong CÙNG một transaction:
-        // nếu bất kỳ bước nào lỗi thì toàn bộ được rollback, không có trường hợp "đã duyệt nhưng chưa cộng điểm".
-        val approvedTask = database.withTransaction {
-            // Cập nhật có điều kiện: chỉ chuyển sang COMPLETED khi trạng thái hiện tại là PENDING_APPROVAL
+        // lỗi ở bất kỳ bước nào thì rollback toàn bộ, không có chuyện "đã duyệt nhưng chưa cộng điểm".
+        val res = ServiceLocale.localizedContext(context)
+        val approvedTask = database.withTransaction<Task?> {
+            // Chỉ chuyển sang COMPLETED khi đang PENDING_APPROVAL -> bấm 2 lần chỉ cộng điểm 1 lần
             val rowsUpdated = taskDao.updateTaskStatusConditional(
                 taskId = task.id,
                 expectedStatus = TaskStatus.PENDING_APPROVAL,
                 newStatus = TaskStatus.COMPLETED
             )
-            // Nếu không có dòng nào được cập nhật (ví dụ bấm nhanh 2 lần hoặc task chưa nộp PENDING_APPROVAL), dừng lại
             if (rowsUpdated <= 0) return@withTransaction null
 
-            val currentTask = taskDao.getTaskById(task.id) ?: task
-            // Xác định chính xác thành viên nhận điểm thưởng
-            val targetUserId = currentTask.assignedToUserId.ifEmpty { task.assignedToUserId }
+            val currentTask = taskDao.getTaskById(task.id) ?: return@withTransaction null
+            val targetUserId = currentTask.assignedToUserId
             if (targetUserId.isNotEmpty() && currentTask.points > 0) {
                 userDao.addPoints(targetUserId, currentTask.points)
                 notificationDao.insertNotification(
                     NotificationItem(
                         id = UUID.randomUUID().toString(),
                         userId = targetUserId,
-                        title = APPROVED_TITLE,
-                        message = approvedMessage(currentTask)
+                        title = res.getString(R.string.tk_noti_approved_title),
+                        message = res.getString(R.string.tk_noti_approved_message, currentTask.points, currentTask.title)
                     )
                 )
-                currentTask
-            } else null
-        } ?: return
+            }
+            currentTask
+        } ?: return TaskActionResult.INVALID_STATE
 
-        // Push notification là side-effect ngoài DB nên chỉ gửi sau khi transaction đã commit thành công
-        pushNotificationService.sendTaskNotification(APPROVED_TITLE, approvedMessage(approvedTask))
+        // Thông báo đẩy là việc ngoài DB nên chỉ gửi sau khi transaction đã commit
+        if (approvedTask.assignedToUserId.isNotEmpty() && approvedTask.points > 0) {
+            pushNotificationService.sendTaskNotification(
+                res.getString(R.string.tk_noti_approved_title),
+                res.getString(R.string.tk_noti_approved_message, approvedTask.points, approvedTask.title)
+            )
+        }
+        return TaskActionResult.SUCCESS
     }
 
-    private fun approvedMessage(task: Task) =
-        "Chúc mừng! Bạn nhận +${task.points}⭐ điểm cho '${task.title}'"
+    suspend fun rejectTask(task: Task, actor: User): TaskActionResult {
+        val check = checkReviewer(task.id, actor)
+        if (check != TaskActionResult.SUCCESS) return check
 
-    suspend fun rejectTask(task: Task) {
-        // Cập nhật có điều kiện: chỉ từ chối khi task đang ở trạng thái PENDING_APPROVAL
+        // Chỉ từ chối khi đang PENDING_APPROVAL
         val rowsUpdated = taskDao.updateTaskStatusConditional(
             taskId = task.id,
             expectedStatus = TaskStatus.PENDING_APPROVAL,
             newStatus = TaskStatus.REJECTED
         )
-        if (rowsUpdated <= 0) {
-            return
-        }
+        if (rowsUpdated <= 0) return TaskActionResult.INVALID_STATE
 
         val currentTask = taskDao.getTaskById(task.id) ?: task
-        val targetUserId = currentTask.assignedToUserId.ifEmpty { task.assignedToUserId }
-        if (targetUserId.isNotEmpty()) {
-            val notifTitle = "❌ Nhiệm vụ bị từ chối"
-            val notifMessage = "'${currentTask.title}' chưa đạt yêu cầu, vui lòng thực hiện lại."
-            notificationDao.insertNotification(
-                NotificationItem(
-                    id = UUID.randomUUID().toString(),
-                    userId = targetUserId,
-                    title = notifTitle,
-                    message = notifMessage
-                )
+        if (currentTask.assignedToUserId.isNotEmpty()) {
+            val res = ServiceLocale.localizedContext(context)
+            notifyUsers(
+                listOf(currentTask.assignedToUserId),
+                res.getString(R.string.tk_noti_rejected_title),
+                res.getString(R.string.tk_noti_rejected_message, currentTask.title)
             )
-            pushNotificationService.sendTaskNotification(notifTitle, notifMessage)
         }
+        return TaskActionResult.SUCCESS
     }
 
     suspend fun deleteTask(task: Task) = taskDao.deleteTask(task)
 
-    private companion object {
-        const val APPROVED_TITLE = "✅ Nhiệm vụ được duyệt!"
-        val SUBMITTABLE_STATUSES = setOf(TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REJECTED)
+    // ─────────────────────────── Tiện ích ───────────────────────────
+
+    private suspend fun checkWorker(taskId: String, actor: User): TaskActionResult {
+        val task = taskDao.getTaskById(taskId) ?: return TaskActionResult.NOT_FOUND
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
+        return if (TaskPermissions.canWork(freshActor, task)) TaskActionResult.SUCCESS
+        else TaskActionResult.NOT_ALLOWED
+    }
+
+    private suspend fun checkReviewer(taskId: String, actor: User): TaskActionResult {
+        val task = taskDao.getTaskById(taskId) ?: return TaskActionResult.NOT_FOUND
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
+        return if (TaskPermissions.canReview(freshActor, task)) TaskActionResult.SUCCESS
+        else TaskActionResult.NOT_ALLOWED
+    }
+
+    /** Lưu thông báo vào hộp thư từng người nhận rồi bắn 1 thông báo đẩy. */
+    private suspend fun notifyUsers(userIds: List<String>, title: String, message: String) {
+        val receivers = userIds.filter { it.isNotBlank() }.distinct()
+        if (receivers.isEmpty()) return
+        val now = System.currentTimeMillis()
+        receivers.forEach { userId ->
+            notificationDao.insertNotification(
+                NotificationItem(
+                    id = UUID.randomUUID().toString(),
+                    userId = userId,
+                    title = title,
+                    message = message,
+                    timestamp = now
+                )
+            )
+        }
+        pushNotificationService.sendTaskNotification(title, message)
     }
 }
