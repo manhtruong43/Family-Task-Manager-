@@ -45,4 +45,43 @@ interface FamilyDao {
     /** Đưa 1 người ra khỏi nhóm gia đình (rời nhóm hoặc bị Admin xóa). */
     @Query("UPDATE users SET familyId = '' WHERE id = :userId")
     suspend fun clearUserFamily(userId: String)
+
+    // ─── Dọn dữ liệu khi thành viên rời nhóm ───
+
+    /**
+     * Việc CHƯA hoàn thành của người rời nhóm -> trả về "Chưa làm" và giao cho cả nhà,
+     * để không bị kẹt (người cũ đã rời, người khác lại không có quyền làm việc của họ).
+     * Việc đã hoàn thành giữ nguyên để thống kê / lịch sử vẫn đúng.
+     */
+    @Query(
+        "UPDATE tasks SET assignedToUserId = '', assignedToUserName = '', status = 'TODO', " +
+            "proofImageUrl = '', proofNote = '' " +
+            "WHERE familyId = :familyId AND assignedToUserId = :userId " +
+            "AND status IN ('TODO', 'IN_PROGRESS', 'REJECTED', 'PENDING_APPROVAL')"
+    )
+    suspend fun releaseUnfinishedTasks(familyId: String, userId: String): Int
+
+    /** Lịch trình cố định đang giao cho người rời nhóm -> giao cho cả nhà. */
+    @Query(
+        "UPDATE recurring_schedules SET assignedToUserId = '', assignedToUserName = '' " +
+            "WHERE familyId = :familyId AND assignedToUserId = :userId"
+    )
+    suspend fun releaseSchedules(familyId: String, userId: String): Int
+
+    // ─── Dọn dữ liệu khi giải tán nhóm ───
+
+    @Query("DELETE FROM recurring_schedules WHERE familyId = :familyId")
+    suspend fun deleteSchedulesOfFamily(familyId: String)
+
+    @Query("DELETE FROM task_reactions WHERE taskId IN (SELECT id FROM tasks WHERE familyId = :familyId)")
+    suspend fun deleteReactionsOfFamily(familyId: String)
+
+    @Query("DELETE FROM tasks WHERE familyId = :familyId")
+    suspend fun deleteTasksOfFamily(familyId: String)
+
+    @Query("DELETE FROM reward_redemptions WHERE familyId = :familyId")
+    suspend fun deleteRedemptionsOfFamily(familyId: String)
+
+    @Query("DELETE FROM rewards WHERE familyId = :familyId")
+    suspend fun deleteRewardsOfFamily(familyId: String)
 }

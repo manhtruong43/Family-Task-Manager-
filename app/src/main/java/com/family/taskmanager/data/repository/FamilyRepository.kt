@@ -122,7 +122,7 @@ class FamilyRepository @Inject constructor(
         if (member.id == actor.id || member.role == UserRole.ADMIN) {
             return FamilyResult.Failure(FamilyError.CANNOT_REMOVE_ADMIN)
         }
-        familyDao.clearUserFamily(member.id)
+        detachMember(actor.familyId, member.id)
         return FamilyResult.Success(Unit)
     }
 
@@ -140,14 +140,33 @@ class FamilyRepository @Inject constructor(
             if (familyDao.countMembers(familyId) > 1) {
                 return FamilyResult.Failure(FamilyError.ADMIN_MUST_STAY)
             }
+            // Giải tán nhóm: xóa toàn bộ dữ liệu của nhóm (kể cả lịch trình cố định,
+            // để bộ sinh việc không tiếp tục tạo nhiệm vụ cho một nhóm không còn tồn tại)
             database.withTransaction {
                 familyDao.clearUserFamily(user.id)
+                familyDao.deleteSchedulesOfFamily(familyId)
+                familyDao.deleteReactionsOfFamily(familyId)
+                familyDao.deleteTasksOfFamily(familyId)
+                familyDao.deleteRedemptionsOfFamily(familyId)
+                familyDao.deleteRewardsOfFamily(familyId)
                 familyDao.deleteFamily(familyId)
             }
         } else {
-            familyDao.clearUserFamily(user.id)
+            detachMember(familyId, user.id)
         }
         return FamilyResult.Success(Unit)
+    }
+
+    /**
+     * Đưa 1 thành viên ra khỏi nhóm và trả việc dang dở của họ về cho cả nhà
+     * (trong cùng 1 transaction: không có lúc nào việc bị kẹt với người đã rời nhóm).
+     */
+    private suspend fun detachMember(familyId: String, memberId: String) {
+        database.withTransaction {
+            familyDao.clearUserFamily(memberId)
+            familyDao.releaseUnfinishedTasks(familyId, memberId)
+            familyDao.releaseSchedules(familyId, memberId)
+        }
     }
 
     /** Sinh mã 6 chữ số ngẫu nhiên (SecureRandom) và đảm bảo không trùng với nhóm khác. */
