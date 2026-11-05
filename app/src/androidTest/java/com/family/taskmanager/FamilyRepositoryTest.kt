@@ -18,6 +18,9 @@ import com.family.taskmanager.data.repository.RewardRepository
 import com.family.taskmanager.data.repository.TaskPermissions
 import com.family.taskmanager.data.service.NotificationPreferences
 import com.family.taskmanager.data.service.PushNotificationService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -197,6 +200,32 @@ class FamilyRepositoryTest {
 
         assertTrue(repository.leaveFamily(parent.id) is FamilyResult.Success)
         assertNull(db.familyDao().getFamilyByIdOnce(family.id))
+    }
+
+    @Test
+    fun bothParentsLeavingAtOnce_familyNeverLosesItsLastParent() = runBlocking<Unit> {
+        // Lặp nhiều vòng để tăng khả năng hai yêu cầu thật sự chen nhau
+        repeat(10) { round ->
+            listOf(parent, dad, bin).forEach { db.userDao().insertUser(it.copy(familyId = "")) }
+            val family = createFamily()
+            repository.joinFamilyByCode(family.inviteCode, dad)
+            repository.joinFamilyByCode(family.inviteCode, bin)
+
+            // Bố và Mẹ cùng bấm "Rời nhóm" một lúc, trong khi nhóm vẫn còn con
+            val results = listOf(parent.id, dad.id)
+                .map { id -> async(Dispatchers.IO) { repository.leaveFamily(id) } }
+                .awaitAll()
+
+            // Đúng 1 người rời được, người còn lại bị giữ lại
+            assertEquals("vòng $round", 1, results.count { it is FamilyResult.Success })
+            assertEquals("vòng $round", 1, results.count { errorOf(it) == FamilyError.ADMIN_MUST_STAY })
+
+            // Nhóm vẫn còn đúng 1 Bố/Mẹ và người đó là chủ nhóm
+            val parentsLeft = listOf(parent.id, dad.id).map { user(it) }.filter { it.familyId == family.id }
+            assertEquals("vòng $round", 1, parentsLeft.size)
+            assertEquals("vòng $round", parentsLeft.single().id, db.familyDao().getFamilyByIdOnce(family.id)!!.adminId)
+            assertEquals("vòng $round", family.id, user(bin.id).familyId)
+        }
     }
 
     // ─── Rời nhóm / bị xóa: việc dang dở không bị kẹt ───
