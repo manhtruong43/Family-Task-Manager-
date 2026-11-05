@@ -31,7 +31,6 @@ fun FamilyError.messageRes(): Int = when (this) {
     FamilyError.INVALID_CODE -> R.string.fam_error_invalid_code
     FamilyError.CODE_NOT_FOUND -> R.string.fam_error_code_not_found
     FamilyError.ONLY_ADMIN_CAN_CREATE -> R.string.fam_error_only_admin_create
-    FamilyError.ONLY_MEMBER_CAN_JOIN -> R.string.fam_error_only_member_join
     FamilyError.ALREADY_IN_FAMILY -> R.string.fam_error_already_in_family
     FamilyError.USER_NOT_FOUND -> R.string.fam_error_user_not_found
     FamilyError.NOT_ALLOWED -> R.string.fam_error_not_allowed

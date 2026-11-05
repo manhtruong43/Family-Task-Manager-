@@ -36,7 +36,7 @@
     <string name="invite_code_copied">Đã sao chép mã mời!</string>
 
     <string name="fam_setup_title">Cài đặt Gia đình</string>
-    <string name="fam_setup_subtitle_admin">Xin chào %s! Hãy tạo nhóm gia đình và gửi mã mời cho các thành viên.</string>
+    <string name="fam_setup_subtitle_admin">Xin chào %s! Hãy tạo nhóm gia đình mới, hoặc nhập mã mời nếu Bố/Mẹ kia đã tạo nhóm.</string>
     <string name="fam_setup_subtitle_member">Xin chào %s! Hãy nhập mã mời mà Bố/Mẹ gửi cho bạn.</string>
     <string name="fam_name_hint">Tên gia đình (vd: Gia đình Yêu Thương)</string>
     <string name="fam_create_button">Tạo gia đình &amp; sinh mã mời</string>
@@ -46,19 +46,21 @@
     <string name="fam_your_invite_code">Mã mời gia đình của bạn:</string>
     <string name="fam_invite_hint">Gửi mã này cho các thành viên. Bạn có thể xem lại hoặc đổi mã trong Cài đặt.</string>
     <string name="fam_go_home">Vào trang chủ</string>
-    <string name="fam_role_hint_admin">Bạn đăng nhập với vai trò Quản lý nên sẽ trở thành Admin của nhóm: giao việc, duyệt việc và quản lý phần thưởng.</string>
+    <string name="fam_role_hint_admin">Bạn đăng nhập với vai trò Quản lý nên sẽ là chủ nhóm: giao việc, duyệt việc và quản lý phần thưởng. Gửi mã mời cho Bố/Mẹ còn lại và các con.</string>
     <string name="fam_role_hint_member">Bạn đăng nhập với vai trò Thành viên nên sẽ tham gia nhóm có sẵn. Muốn tạo nhóm mới, hãy đăng nhập với vai trò Quản lý (Bố/Mẹ).</string>
+    <string name="fam_mode_create">Tạo gia đình mới</string>
+    <string name="fam_mode_join">Đã có gia đình</string>
+    <string name="fam_role_hint_admin_join">Nhập mã mời mà Bố/Mẹ kia đã tạo. Bạn vẫn giữ quyền Quản lý: cùng giao việc, duyệt việc và quản lý phần thưởng.</string>
 
     <string name="fam_error_empty_name">Vui lòng nhập tên gia đình</string>
     <string name="fam_error_invalid_code">Mã mời phải gồm đúng 6 chữ số</string>
     <string name="fam_error_code_not_found">Mã mời không tồn tại. Vui lòng kiểm tra lại.</string>
     <string name="fam_error_only_admin_create">Chỉ tài khoản Quản lý (Bố/Mẹ) mới được tạo nhóm gia đình</string>
-    <string name="fam_error_only_member_join">Tài khoản Quản lý không thể tham gia nhóm khác. Hãy tạo nhóm mới.</string>
     <string name="fam_error_already_in_family">Bạn đã ở trong một nhóm gia đình</string>
     <string name="fam_error_user_not_found">Không tìm thấy tài khoản</string>
     <string name="fam_error_not_allowed">Bạn không có quyền thực hiện thao tác này</string>
     <string name="fam_error_cannot_remove_admin">Không thể xóa Quản lý hoặc chính bạn khỏi nhóm</string>
-    <string name="fam_error_admin_must_stay">Quản lý chỉ có thể rời nhóm khi không còn thành viên nào khác</string>
+    <string name="fam_error_admin_must_stay">Bố/Mẹ cuối cùng chỉ rời nhóm được khi không còn thành viên nào khác</string>
     <string name="fam_error_general">Đã có lỗi xảy ra, vui lòng thử lại</string>
 
     <!-- Navigation -->
@@ -131,7 +133,7 @@
     <string name="set_regenerate_code">Tạo mã mời mới</string>
     <string name="set_members_title">Thành viên (%d)</string>
     <string name="set_leave_family">Rời nhóm gia đình</string>
-    <string name="set_leave_admin_hint">Quản lý chỉ rời nhóm được khi đã xóa hết thành viên khác.</string>
+    <string name="set_leave_admin_hint">Bạn là Bố/Mẹ duy nhất trong nhóm nên chỉ rời được khi đã xóa hết các con.</string>
     <string name="set_language">Ngôn ngữ</string>
     <string name="set_language_vi">Tiếng Việt</string>
     <string name="set_language_en">English</string>
@@ -149,6 +151,7 @@
     <string name="set_leave_title">Rời nhóm gia đình?</string>
     <string name="set_leave_message_member">Bạn sẽ rời nhóm và được đăng xuất. Điểm tích lũy vẫn được giữ lại.</string>
     <string name="set_leave_message_admin">Bạn là thành viên cuối cùng, nhóm gia đình sẽ bị giải tán.</string>
+    <string name="set_leave_message_parent">Bạn sẽ rời nhóm và được đăng xuất. Bố/Mẹ còn lại sẽ tiếp tục quản lý gia đình.</string>
     <string name="set_leave_confirm">Rời nhóm</string>
     <string name="set_logout_title">Đăng xuất?</string>
     <string name="set_logout_message">Bạn có chắc muốn đăng xuất khỏi ứng dụng?</string>

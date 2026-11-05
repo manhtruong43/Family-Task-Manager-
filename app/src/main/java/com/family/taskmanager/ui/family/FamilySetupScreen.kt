@@ -23,6 +23,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -62,7 +63,9 @@ private val AccentGold = Color(0xFFFBBF24)
  * Màn hình thiết lập nhóm gia đình (sau khi đăng nhập lần đầu).
  *
  * Phân quyền tự động theo vai trò đã chọn khi đăng nhập:
- *  - Quản lý (Bố/Mẹ)  -> TẠO nhóm mới, trở thành Admin của nhóm.
+ *  - Quản lý (Bố/Mẹ)  -> chọn 1 trong 2:
+ *      + TẠO nhóm mới (người đầu tiên trong nhà), trở thành chủ nhóm;
+ *      + THAM GIA nhóm Bố/Mẹ kia đã tạo bằng mã mời, vẫn giữ quyền Quản lý.
  *  - Thành viên (Con) -> THAM GIA nhóm bằng mã mời, trở thành Member.
  */
 @Composable
@@ -74,6 +77,9 @@ fun FamilySetupScreen(
     val isAdmin = currentUser.role == UserRole.ADMIN
     var familyName by rememberSaveable { mutableStateOf("") }
     var inviteCodeInput by rememberSaveable { mutableStateOf("") }
+    // Bố/Mẹ: false = tạo nhóm mới, true = tham gia nhóm đã có. Con luôn tham gia.
+    var parentJoinMode by rememberSaveable { mutableStateOf(false) }
+    val showJoinForm = !isAdmin || parentJoinMode
 
     val state by viewModel.state.collectAsState()
     val clipboardManager = LocalClipboardManager.current
@@ -196,10 +202,38 @@ fun FamilySetupScreen(
                         }
                     }
                 } else {
+                    if (isAdmin) {
+                        // ─── Bố/Mẹ: chọn tạo nhóm mới hay tham gia nhóm đã có ───
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ModeButton(
+                                text = stringResource(R.string.fam_mode_create),
+                                selected = !parentJoinMode,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    parentJoinMode = false
+                                    viewModel.clearError()
+                                }
+                            )
+                            ModeButton(
+                                text = stringResource(R.string.fam_mode_join),
+                                selected = parentJoinMode,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    parentJoinMode = true
+                                    viewModel.clearError()
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                    }
+
                     GlassCard(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(20.dp)) {
-                            if (isAdmin) {
-                                // ─── Bố/Mẹ: tạo nhóm ───
+                            if (!showJoinForm) {
+                                // ─── Bố/Mẹ đầu tiên: tạo nhóm ───
                                 Text(
                                     stringResource(R.string.create_family),
                                     color = Color.White,
@@ -235,7 +269,7 @@ fun FamilySetupScreen(
                                     }
                                 }
                             } else {
-                                // ─── Con: tham gia bằng mã mời ───
+                                // ─── Con, hoặc Bố/Mẹ thứ hai: tham gia bằng mã mời ───
                                 Text(
                                     stringResource(R.string.join_family),
                                     color = Color.White,
@@ -287,7 +321,11 @@ fun FamilySetupScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = stringResource(
-                                    if (isAdmin) R.string.fam_role_hint_admin else R.string.fam_role_hint_member
+                                    when {
+                                        !isAdmin -> R.string.fam_role_hint_member
+                                        parentJoinMode -> R.string.fam_role_hint_admin_join
+                                        else -> R.string.fam_role_hint_admin
+                                    }
                                 ),
                                 color = Color.White.copy(alpha = 0.75f),
                                 fontSize = 12.sp
@@ -306,6 +344,33 @@ fun FamilySetupScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Nút chọn chế độ cho Bố/Mẹ: nút đang chọn tô màu, nút còn lại chỉ có viền. */
+@Composable
+private fun ModeButton(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    if (selected) {
+        Button(
+            onClick = onClick,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+            modifier = modifier.height(46.dp)
+        ) {
+            Text(text, fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            modifier = modifier.height(46.dp)
+        ) {
+            Text(text, fontSize = 14.sp, textAlign = TextAlign.Center)
         }
     }
 }
