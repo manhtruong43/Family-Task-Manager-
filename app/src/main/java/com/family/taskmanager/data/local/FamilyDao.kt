@@ -34,6 +34,10 @@ interface FamilyDao {
     @Query("DELETE FROM family_groups WHERE id = :familyId")
     suspend fun deleteFamily(familyId: String)
 
+    /** Chuyển quyền chủ nhóm (người tạo nhóm) sang một Bố/Mẹ khác. */
+    @Query("UPDATE family_groups SET adminId = :newAdminId WHERE id = :familyId")
+    suspend fun updateFamilyOwner(familyId: String, newAdminId: String)
+
     // ─── Thành viên trong nhóm (chỉ thao tác cột familyId của bảng users) ───
 
     @Query("SELECT * FROM users WHERE id = :userId LIMIT 1")
@@ -41,6 +45,10 @@ interface FamilyDao {
 
     @Query("SELECT COUNT(*) FROM users WHERE familyId = :familyId")
     suspend fun countMembers(familyId: String): Int
+
+    /** Một Bố/Mẹ khác (không phải [excludeUserId]) đang ở trong nhóm, nếu có. */
+    @Query("SELECT * FROM users WHERE familyId = :familyId AND role = 'ADMIN' AND id != :excludeUserId LIMIT 1")
+    suspend fun getOtherParent(familyId: String, excludeUserId: String): User?
 
     /** Đưa 1 người ra khỏi nhóm gia đình (rời nhóm hoặc bị Admin xóa). */
     @Query("UPDATE users SET familyId = '' WHERE id = :userId")

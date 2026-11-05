@@ -36,7 +36,7 @@
     <string name="invite_code_copied">Invite code copied!</string>
 
     <string name="fam_setup_title">Family Setup</string>
-    <string name="fam_setup_subtitle_admin">Hi %s! Create your family group and share the invite code with your family.</string>
+    <string name="fam_setup_subtitle_admin">Hi %s! Create a new family group, or enter the invite code if the other parent already created one.</string>
     <string name="fam_setup_subtitle_member">Hi %s! Enter the invite code your parents gave you.</string>
     <string name="fam_name_hint">Family name (e.g. The Happy Family)</string>
     <string name="fam_create_button">Create family &amp; invite code</string>
@@ -46,19 +46,21 @@
     <string name="fam_your_invite_code">Your family invite code:</string>
     <string name="fam_invite_hint">Share this code with your family. You can view or change it later in Settings.</string>
     <string name="fam_go_home">Go to Home</string>
-    <string name="fam_role_hint_admin">You signed in as an Admin, so you will manage this family: assign tasks, approve work and manage rewards.</string>
+    <string name="fam_role_hint_admin">You signed in as an Admin, so you will own this family: assign tasks, approve work and manage rewards. Share the invite code with the other parent and your children.</string>
     <string name="fam_role_hint_member">You signed in as a Member, so you will join an existing family. To create a new family, sign in as an Admin (Parent).</string>
+    <string name="fam_mode_create">Create new family</string>
+    <string name="fam_mode_join">Join existing family</string>
+    <string name="fam_role_hint_admin_join">Enter the invite code created by the other parent. You keep Admin rights: assign tasks, approve work and manage rewards together.</string>
 
     <string name="fam_error_empty_name">Please enter a family name</string>
     <string name="fam_error_invalid_code">The invite code must have exactly 6 digits</string>
     <string name="fam_error_code_not_found">This invite code does not exist. Please check again.</string>
     <string name="fam_error_only_admin_create">Only Admin (Parent) accounts can create a family</string>
-    <string name="fam_error_only_member_join">Admin accounts cannot join another family. Please create a new one.</string>
     <string name="fam_error_already_in_family">You are already in a family group</string>
     <string name="fam_error_user_not_found">Account not found</string>
     <string name="fam_error_not_allowed">You are not allowed to do this</string>
     <string name="fam_error_cannot_remove_admin">You cannot remove the Admin or yourself</string>
-    <string name="fam_error_admin_must_stay">The Admin can only leave when no other members remain</string>
+    <string name="fam_error_admin_must_stay">The last parent can only leave when no other members remain</string>
     <string name="fam_error_general">Something went wrong, please try again</string>
 
     <!-- Navigation -->
@@ -131,7 +133,7 @@
     <string name="set_regenerate_code">Generate new invite code</string>
     <string name="set_members_title">Members (%d)</string>
     <string name="set_leave_family">Leave family</string>
-    <string name="set_leave_admin_hint">The Admin can only leave after removing all other members.</string>
+    <string name="set_leave_admin_hint">You are the only parent in this family, so you can leave only after removing all children.</string>
     <string name="set_language">Language</string>
     <string name="set_language_vi">Tiếng Việt</string>
     <string name="set_language_en">English</string>
@@ -149,6 +151,7 @@
     <string name="set_leave_title">Leave family?</string>
     <string name="set_leave_message_member">You will leave the family and be logged out. Your points are kept.</string>
     <string name="set_leave_message_admin">You are the last member, so the family group will be deleted.</string>
+    <string name="set_leave_message_parent">You will leave the family and be logged out. The other parent will keep managing the family.</string>
     <string name="set_leave_confirm">Leave</string>
     <string name="set_logout_title">Log out?</string>
     <string name="set_logout_message">Are you sure you want to log out?</string>

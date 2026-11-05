@@ -117,6 +117,10 @@ fun SettingsScreen(
     val language by remember { AppLanguage.languageFlow(context) }.collectAsState()
 
     val isAdmin = user?.role == UserRole.ADMIN
+    // Số Bố/Mẹ khác trong nhóm: còn ít nhất 1 người thì Bố/Mẹ này được rời nhóm bình thường
+    val otherParents = members.count { it.role == UserRole.ADMIN && it.id != user?.id }
+    // Bố/Mẹ cuối cùng mà nhóm vẫn còn Con -> chưa được rời (tránh nhóm không có ai quản lý)
+    val leaveBlocked = isAdmin && otherParents == 0 && members.size > 1
     val currentOnLogout by rememberUpdatedState(onLogout)
 
     // Trạng thái hộp thoại / hiển thị
@@ -323,10 +327,9 @@ fun SettingsScreen(
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))
-                            val adminHasOthers = isAdmin && members.size > 1
                             OutlinedButton(
                                 onClick = { confirmLeave = true },
-                                enabled = !adminHasOthers,
+                                enabled = !leaveBlocked,
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentRed),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -334,7 +337,7 @@ fun SettingsScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(stringResource(R.string.set_leave_family))
                             }
-                            if (adminHasOthers) {
+                            if (leaveBlocked) {
                                 Text(
                                     stringResource(R.string.set_leave_admin_hint),
                                     color = Color.White.copy(alpha = 0.6f),
@@ -467,7 +470,13 @@ fun SettingsScreen(
     if (confirmLeave) {
         ConfirmDialog(
             title = stringResource(R.string.set_leave_title),
-            message = stringResource(if (isAdmin) R.string.set_leave_message_admin else R.string.set_leave_message_member),
+            message = stringResource(
+                when {
+                    !isAdmin -> R.string.set_leave_message_member
+                    otherParents > 0 -> R.string.set_leave_message_parent
+                    else -> R.string.set_leave_message_admin
+                }
+            ),
             confirmText = stringResource(R.string.set_leave_confirm),
             confirmColor = AccentRed,
             onDismiss = { confirmLeave = false },
