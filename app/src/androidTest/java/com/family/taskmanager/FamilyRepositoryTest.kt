@@ -1,203 +1,293 @@
-package com.family.taskmanager.data.repository
+package com.family.taskmanager
 
-import androidx.room.withTransaction
+import androidx.room.Room
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.family.taskmanager.data.local.AppDatabase
-import com.family.taskmanager.data.local.FamilyDao
-import com.family.taskmanager.data.local.UserDao
 import com.family.taskmanager.data.model.FamilyGroup
+import com.family.taskmanager.data.model.RecurringSchedule
+import com.family.taskmanager.data.model.Task
+import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
-import kotlinx.coroutines.flow.Flow
-import java.security.SecureRandom
-import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
+import com.family.taskmanager.data.repository.FamilyError
+import com.family.taskmanager.data.repository.FamilyRepository
+import com.family.taskmanager.data.repository.FamilyResult
+import com.family.taskmanager.data.repository.NotificationRepository
+import com.family.taskmanager.data.repository.RewardRepository
+import com.family.taskmanager.data.repository.TaskPermissions
+import com.family.taskmanager.data.service.NotificationPreferences
+import com.family.taskmanager.data.service.PushNotificationService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
 
-/** Các lỗi nghiệp vụ của module Nhóm gia đình. */
-enum class FamilyError {
-    EMPTY_NAME,
-    INVALID_CODE,
-    CODE_NOT_FOUND,
-    ONLY_ADMIN_CAN_CREATE,
-    ALREADY_IN_FAMILY,
-    USER_NOT_FOUND,
-    NOT_ALLOWED,
-    CANNOT_REMOVE_ADMIN,
-    ADMIN_MUST_STAY,
-    CODE_GENERATION_FAILED
-}
+/**
+ * Kiểm thử nhóm gia đình: tạo / tham gia / mã mời / xóa thành viên / rời nhóm.
+ * Chạy trên máy ảo / máy thật: chuột phải file -> Run 'FamilyRepositoryTest'.
+ */
+@RunWith(AndroidJUnit4::class)
+class FamilyRepositoryTest {
 
-sealed class FamilyResult<out T> {
-    data class Success<T>(val data: T) : FamilyResult<T>()
-    data class Failure(val error: FamilyError) : FamilyResult<Nothing>()
-}
+    private lateinit var db: AppDatabase
+    private lateinit var repository: FamilyRepository
 
-@Singleton
-class FamilyRepository @Inject constructor(
-    private val database: AppDatabase,
-    private val familyDao: FamilyDao,
-    private val userDao: UserDao,
-    private val rewardRepository: RewardRepository
-) {
-    companion object {
-        const val INVITE_CODE_LENGTH = 6
-        const val MAX_FAMILY_NAME_LENGTH = 40
-        private const val MAX_CODE_ATTEMPTS = 30
+    private val parent = User(id = "admin", name = "Mẹ", email = "me@x.com", role = UserRole.ADMIN)
+    private val bin = User(id = "bin", name = "Bin", email = "bin@x.com", role = UserRole.MEMBER)
+    private val na = User(id = "na", name = "Na", email = "na@x.com", role = UserRole.MEMBER)
+    private val dad = User(id = "dad", name = "Bố", email = "bo@x.com", role = UserRole.ADMIN)
+
+    @Before
+    fun setUp() = runBlocking<Unit> {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val push = PushNotificationService(context, NotificationPreferences(context))
+        val rewards = RewardRepository(context, db, db.rewardDao(), NotificationRepository(db.notificationDao(), push))
+        repository = FamilyRepository(db, db.familyDao(), db.userDao(), rewards)
+        listOf(parent, bin, na, dad).forEach { db.userDao().insertUser(it) }
     }
 
-    private val random = SecureRandom()
+    @After
+    fun tearDown() {
+        db.close()
+    }
 
-    fun getFamily(familyId: String): Flow<FamilyGroup?> = familyDao.getFamilyById(familyId)
+    private suspend fun user(id: String) = db.userDao().getUserByIdSync(id)!!
 
-    /**
-     * Tạo nhóm gia đình mới. Người tạo tự động là ADMIN (Bố/Mẹ) của nhóm.
-     * Chỉ tài khoản đăng nhập với vai trò Quản lý mới được tạo nhóm.
-     */
-    suspend fun createFamily(familyName: String, sessionUser: User): FamilyResult<FamilyGroup> {
-        val name = familyName.trim().take(MAX_FAMILY_NAME_LENGTH)
-        if (name.isEmpty()) return FamilyResult.Failure(FamilyError.EMPTY_NAME)
+    private suspend fun createFamily(): FamilyGroup {
+        val result = repository.createFamily("Gia đình Yêu Thương", parent)
+        assertTrue(result is FamilyResult.Success)
+        return (result as FamilyResult.Success).data
+    }
 
-        val user = familyDao.getUserById(sessionUser.id) ?: sessionUser
-        if (user.familyId.isNotBlank()) return FamilyResult.Failure(FamilyError.ALREADY_IN_FAMILY)
-        if (user.role != UserRole.ADMIN) return FamilyResult.Failure(FamilyError.ONLY_ADMIN_CAN_CREATE)
+    private fun errorOf(result: FamilyResult<*>): FamilyError? = (result as? FamilyResult.Failure)?.error
 
-        val inviteCode = generateUniqueInviteCode()
-            ?: return FamilyResult.Failure(FamilyError.CODE_GENERATION_FAILED)
+    @Test
+    fun parent_createsFamily_withSixDigitCode_andDefaultRewards() = runBlocking<Unit> {
+        val family = createFamily()
 
-        val family = FamilyGroup(
-            id = UUID.randomUUID().toString(),
-            name = name,
-            inviteCode = inviteCode,
-            adminId = user.id
+        assertTrue(family.inviteCode.matches(Regex("\\d{6}")))
+        assertEquals(family.id, user(parent.id).familyId)
+        assertTrue(db.rewardDao().getRewardsByFamily(family.id).first().isNotEmpty())
+    }
+
+    @Test
+    fun createFamily_rules() = runBlocking<Unit> {
+        assertEquals(FamilyError.EMPTY_NAME, errorOf(repository.createFamily("   ", parent)))
+        assertEquals(FamilyError.ONLY_ADMIN_CAN_CREATE, errorOf(repository.createFamily("Nhà Bin", bin)))
+
+        createFamily()
+        assertEquals(FamilyError.ALREADY_IN_FAMILY, errorOf(repository.createFamily("Nhà thứ hai", parent)))
+    }
+
+    @Test
+    fun member_joinsWithCode() = runBlocking<Unit> {
+        val family = createFamily()
+
+        assertTrue(repository.joinFamilyByCode(family.inviteCode, bin) is FamilyResult.Success)
+        assertEquals(family.id, user(bin.id).familyId)
+        assertEquals(FamilyError.ALREADY_IN_FAMILY, errorOf(repository.joinFamilyByCode(family.inviteCode, bin)))
+    }
+
+    @Test
+    fun joinFamily_rules() = runBlocking<Unit> {
+        val family = createFamily()
+        val wrongCode = if (family.inviteCode == "000000") "111111" else "000000"
+
+        assertEquals(FamilyError.INVALID_CODE, errorOf(repository.joinFamilyByCode("123", bin)))
+        assertEquals(FamilyError.CODE_NOT_FOUND, errorOf(repository.joinFamilyByCode(wrongCode, bin)))
+    }
+
+    // ─── Hai Bố/Mẹ cùng một gia đình ───
+
+    @Test
+    fun secondParent_joinsWithCode_andKeepsAdminRights() = runBlocking<Unit> {
+        val family = createFamily()
+
+        assertTrue(repository.joinFamilyByCode(family.inviteCode, dad) is FamilyResult.Success)
+        val joinedDad = user(dad.id)
+        assertEquals(family.id, joinedDad.familyId)
+        assertEquals(UserRole.ADMIN, joinedDad.role)                  // không bị hạ xuống Thành viên
+        assertEquals(parent.id, db.familyDao().getFamilyByIdOnce(family.id)!!.adminId)
+
+        // Bố cũng giao việc, duyệt việc và đổi mã mời được như Mẹ
+        val task = Task(id = "t", title = "Rửa bát", familyId = family.id, createdByUserId = parent.id)
+        assertTrue(TaskPermissions.canCreate(joinedDad))
+        assertTrue(TaskPermissions.canReview(joinedDad, task))
+        assertTrue(repository.regenerateInviteCode(dad.id) is FamilyResult.Success)
+
+        // Hai Bố/Mẹ không xóa được nhau
+        assertEquals(FamilyError.CANNOT_REMOVE_ADMIN, errorOf(repository.removeMember(dad.id, parent.id)))
+    }
+
+    @Test
+    fun ownerLeaving_whileOtherParentStays_handsOverFamily() = runBlocking<Unit> {
+        val family = createFamily()
+        repository.joinFamilyByCode(family.inviteCode, dad)
+        repository.joinFamilyByCode(family.inviteCode, bin)
+
+        assertTrue(repository.leaveFamily(parent.id) is FamilyResult.Success)
+
+        assertEquals("", user(parent.id).familyId)
+        val kept = db.familyDao().getFamilyByIdOnce(family.id)!!      // nhóm KHÔNG bị giải tán
+        assertEquals(dad.id, kept.adminId)                            // Bố thành chủ nhóm
+        assertEquals(family.id, user(bin.id).familyId)
+        assertTrue(db.rewardDao().getRewardsByFamily(family.id).first().isNotEmpty())
+    }
+
+    @Test
+    fun lastParent_mustStay_whileChildrenRemain() = runBlocking<Unit> {
+        val family = createFamily()
+        repository.joinFamilyByCode(family.inviteCode, dad)
+        repository.joinFamilyByCode(family.inviteCode, bin)
+
+        assertTrue(repository.leaveFamily(dad.id) is FamilyResult.Success)
+        assertEquals(parent.id, db.familyDao().getFamilyByIdOnce(family.id)!!.adminId)
+
+        assertEquals(FamilyError.ADMIN_MUST_STAY, errorOf(repository.leaveFamily(parent.id)))
+        assertEquals(family.id, user(parent.id).familyId)
+    }
+
+    @Test
+    fun regenerateCode_oldCodeStopsWorking() = runBlocking<Unit> {
+        val family = createFamily()
+
+        val result = repository.regenerateInviteCode(parent.id)
+        assertTrue(result is FamilyResult.Success)
+        val newCode = (result as FamilyResult.Success).data
+        assertNotEquals(family.inviteCode, newCode)
+
+        assertEquals(FamilyError.CODE_NOT_FOUND, errorOf(repository.joinFamilyByCode(family.inviteCode, bin)))
+        assertTrue(repository.joinFamilyByCode(newCode, bin) is FamilyResult.Success)
+        assertEquals(FamilyError.NOT_ALLOWED, errorOf(repository.regenerateInviteCode(bin.id)))
+    }
+
+    @Test
+    fun removeMember_rules() = runBlocking<Unit> {
+        val family = createFamily()
+        repository.joinFamilyByCode(family.inviteCode, bin)
+        repository.joinFamilyByCode(family.inviteCode, na)
+
+        assertEquals(FamilyError.NOT_ALLOWED, errorOf(repository.removeMember(bin.id, na.id)))
+        assertEquals(FamilyError.CANNOT_REMOVE_ADMIN, errorOf(repository.removeMember(parent.id, parent.id)))
+
+        assertTrue(repository.removeMember(parent.id, bin.id) is FamilyResult.Success)
+        assertEquals("", user(bin.id).familyId)
+        assertEquals(family.id, user(na.id).familyId)
+    }
+
+    @Test
+    fun leaveFamily_parentMustBeLast_thenFamilyIsDeleted() = runBlocking<Unit> {
+        val family = createFamily()
+        repository.joinFamilyByCode(family.inviteCode, bin)
+
+        assertEquals(FamilyError.ADMIN_MUST_STAY, errorOf(repository.leaveFamily(parent.id)))
+
+        assertTrue(repository.leaveFamily(bin.id) is FamilyResult.Success)
+        assertEquals("", user(bin.id).familyId)
+
+        assertTrue(repository.leaveFamily(parent.id) is FamilyResult.Success)
+        assertNull(db.familyDao().getFamilyByIdOnce(family.id))
+    }
+
+    @Test
+    fun bothParentsLeavingAtOnce_familyNeverLosesItsLastParent() = runBlocking<Unit> {
+        // Lặp nhiều vòng để tăng khả năng hai yêu cầu thật sự chen nhau
+        repeat(10) { round ->
+            listOf(parent, dad, bin).forEach { db.userDao().insertUser(it.copy(familyId = "")) }
+            val family = createFamily()
+            repository.joinFamilyByCode(family.inviteCode, dad)
+            repository.joinFamilyByCode(family.inviteCode, bin)
+
+            // Bố và Mẹ cùng bấm "Rời nhóm" một lúc, trong khi nhóm vẫn còn con
+            val results = listOf(parent.id, dad.id)
+                .map { id -> async(Dispatchers.IO) { repository.leaveFamily(id) } }
+                .awaitAll()
+
+            // Đúng 1 người rời được, người còn lại bị giữ lại
+            assertEquals("vòng $round", 1, results.count { it is FamilyResult.Success })
+            assertEquals("vòng $round", 1, results.count { errorOf(it) == FamilyError.ADMIN_MUST_STAY })
+
+            // Nhóm vẫn còn đúng 1 Bố/Mẹ và người đó là chủ nhóm
+            val parentsLeft = listOf(parent.id, dad.id).map { user(it) }.filter { it.familyId == family.id }
+            assertEquals("vòng $round", 1, parentsLeft.size)
+            assertEquals("vòng $round", parentsLeft.single().id, db.familyDao().getFamilyByIdOnce(family.id)!!.adminId)
+            assertEquals("vòng $round", family.id, user(bin.id).familyId)
+        }
+    }
+
+    // ─── Rời nhóm / bị xóa: việc dang dở không bị kẹt ───
+
+    private fun task(id: String, familyId: String, assignee: User, status: TaskStatus) = Task(
+        id = id, title = "Việc $id", familyId = familyId,
+        assignedToUserId = assignee.id, assignedToUserName = assignee.name,
+        createdByUserId = parent.id, status = status,
+        proofImageUrl = if (status == TaskStatus.PENDING_APPROVAL) "file:///proof.jpg" else ""
+    )
+
+    @Test
+    fun removedMember_unfinishedTasksGoBackToEveryone_completedTasksKept() = runBlocking<Unit> {
+        val family = createFamily()
+        repository.joinFamilyByCode(family.inviteCode, bin)
+        db.taskDao().insertTask(task("todo", family.id, bin, TaskStatus.IN_PROGRESS))
+        db.taskDao().insertTask(task("pending", family.id, bin, TaskStatus.PENDING_APPROVAL))
+        db.taskDao().insertTask(task("done", family.id, bin, TaskStatus.COMPLETED))
+        db.recurringScheduleDao().upsert(
+            RecurringSchedule(
+                id = "rec", familyId = family.id, title = "Rửa bát",
+                assignedToUserId = bin.id, assignedToUserName = bin.name, createdByUserId = parent.id
+            )
         )
 
-        database.withTransaction {
-            familyDao.insertFamily(family)
-            userDao.insertUser(user.copy(familyId = family.id, role = UserRole.ADMIN))
-            // Tự động khởi tạo 5 món quà mẫu cho gia đình mới
-            rewardRepository.initDefaultRewards(family.id)
+        assertTrue(repository.removeMember(parent.id, bin.id) is FamilyResult.Success)
+
+        listOf("todo", "pending").forEach { id ->
+            val released = db.taskDao().getTaskById(id)!!
+            assertEquals("", released.assignedToUserId)
+            assertEquals(TaskStatus.TODO, released.status)
+            assertEquals("", released.proofImageUrl)
         }
-        return FamilyResult.Success(family)
+        val done = db.taskDao().getTaskById("done")!!
+        assertEquals(bin.id, done.assignedToUserId)                 // lịch sử giữ nguyên
+        assertEquals(TaskStatus.COMPLETED, done.status)
+        assertEquals("", db.recurringScheduleDao().getById("rec")!!.assignedToUserId)
     }
 
-    /**
-     * Tham gia nhóm bằng mã mời 6 chữ số.
-     * - Con (MEMBER): vào nhóm với vai trò Thành viên.
-     * - Bố/Mẹ (ADMIN): vào nhóm do Bố/Mẹ kia đã tạo và GIỮ vai trò Quản lý
-     *   (cùng giao việc, duyệt việc, quản lý phần thưởng), không phải tạo gia đình mới.
-     */
-    suspend fun joinFamilyByCode(inviteCode: String, sessionUser: User): FamilyResult<FamilyGroup> {
-        val cleanCode = inviteCode.filter { it.isDigit() }
-        if (cleanCode.length != INVITE_CODE_LENGTH) return FamilyResult.Failure(FamilyError.INVALID_CODE)
+    @Test
+    fun memberLeaving_releasesTheirTasksToo() = runBlocking<Unit> {
+        val family = createFamily()
+        repository.joinFamilyByCode(family.inviteCode, na)
+        db.taskDao().insertTask(task("na-todo", family.id, na, TaskStatus.TODO))
 
-        val user = familyDao.getUserById(sessionUser.id) ?: sessionUser
-        if (user.familyId.isNotBlank()) return FamilyResult.Failure(FamilyError.ALREADY_IN_FAMILY)
-
-        val family = familyDao.getFamilyByInviteCode(cleanCode)
-            ?: return FamilyResult.Failure(FamilyError.CODE_NOT_FOUND)
-
-        userDao.insertUser(user.copy(familyId = family.id))
-        return FamilyResult.Success(family)
+        assertTrue(repository.leaveFamily(na.id) is FamilyResult.Success)
+        assertEquals("", db.taskDao().getTaskById("na-todo")!!.assignedToUserId)
     }
 
-    /** Admin tạo mã mời mới (mã cũ hết hiệu lực ngay lập tức). */
-    suspend fun regenerateInviteCode(actorId: String): FamilyResult<String> {
-        val actor = familyDao.getUserById(actorId) ?: return FamilyResult.Failure(FamilyError.USER_NOT_FOUND)
-        if (actor.role != UserRole.ADMIN || actor.familyId.isBlank()) {
-            return FamilyResult.Failure(FamilyError.NOT_ALLOWED)
-        }
-        val newCode = generateUniqueInviteCode()
-            ?: return FamilyResult.Failure(FamilyError.CODE_GENERATION_FAILED)
-        familyDao.updateInviteCode(actor.familyId, newCode)
-        return FamilyResult.Success(newCode)
-    }
+    @Test
+    fun dissolvingFamily_removesItsSchedulesTasksAndRewards() = runBlocking<Unit> {
+        val family = createFamily()
+        db.taskDao().insertTask(task("t", family.id, parent, TaskStatus.TODO))
+        db.recurringScheduleDao().upsert(
+            RecurringSchedule(id = "rec", familyId = family.id, title = "Đổ rác", createdByUserId = parent.id)
+        )
 
-    /** Bố/Mẹ xóa 1 Con khỏi nhóm. Không thể xóa Bố/Mẹ (kể cả Bố/Mẹ kia) hoặc chính mình. */
-    suspend fun removeMember(actorId: String, memberId: String): FamilyResult<Unit> {
-        val actor = familyDao.getUserById(actorId) ?: return FamilyResult.Failure(FamilyError.USER_NOT_FOUND)
-        val member = familyDao.getUserById(memberId) ?: return FamilyResult.Failure(FamilyError.USER_NOT_FOUND)
+        assertTrue(repository.leaveFamily(parent.id) is FamilyResult.Success)
 
-        if (actor.role != UserRole.ADMIN || actor.familyId.isBlank() || actor.familyId != member.familyId) {
-            return FamilyResult.Failure(FamilyError.NOT_ALLOWED)
-        }
-        if (member.id == actor.id || member.role == UserRole.ADMIN) {
-            return FamilyResult.Failure(FamilyError.CANNOT_REMOVE_ADMIN)
-        }
-        detachMember(actor.familyId, member.id)
-        return FamilyResult.Success(Unit)
-    }
-
-    /**
-     * Rời nhóm gia đình.
-     * - Con: rời ngay, việc dang dở trả về cho cả nhà.
-     * - Bố/Mẹ khi nhóm còn Bố/Mẹ khác: rời ngay; nếu là chủ nhóm thì quyền chủ nhóm
-     *   chuyển cho Bố/Mẹ còn lại.
-     * - Bố/Mẹ cuối cùng: chỉ được rời khi là người duy nhất còn trong nhóm
-     *   (khi đó nhóm bị giải tán và toàn bộ dữ liệu nhóm bị xóa).
-     */
-    suspend fun leaveFamily(userId: String): FamilyResult<Unit> {
-        val user = familyDao.getUserById(userId) ?: return FamilyResult.Failure(FamilyError.USER_NOT_FOUND)
-        val familyId = user.familyId
-        if (familyId.isBlank()) return FamilyResult.Success(Unit)
-
-        if (user.role != UserRole.ADMIN) {
-            detachMember(familyId, user.id)
-            return FamilyResult.Success(Unit)
-        }
-
-        var result: FamilyResult<Unit> = FamilyResult.Success(Unit)
-        // Đọc + kiểm tra + ghi trong cùng 1 transaction: hai Bố/Mẹ bấm "Rời nhóm" cùng lúc
-        // thì người sau sẽ thấy mình là Bố/Mẹ cuối cùng, nhóm không bao giờ bị bỏ trống quản lý.
-        database.withTransaction {
-            val otherParent = familyDao.getOtherParent(familyId, user.id)
-            when {
-                otherParent != null -> {
-                    detachMemberInTransaction(familyId, user.id)
-                    val family = familyDao.getFamilyByIdOnce(familyId)
-                    if (family != null && family.adminId == user.id) {
-                        familyDao.updateFamilyOwner(familyId, otherParent.id)
-                    }
-                }
-                familyDao.countMembers(familyId) > 1 -> {
-                    result = FamilyResult.Failure(FamilyError.ADMIN_MUST_STAY)
-                }
-                else -> {
-                    // Giải tán nhóm: xóa toàn bộ dữ liệu của nhóm (kể cả lịch trình cố định,
-                    // để bộ sinh việc không tiếp tục tạo nhiệm vụ cho một nhóm không còn tồn tại)
-                    familyDao.clearUserFamily(user.id)
-                    familyDao.deleteSchedulesOfFamily(familyId)
-                    familyDao.deleteReactionsOfFamily(familyId)
-                    familyDao.deleteTasksOfFamily(familyId)
-                    familyDao.deleteRedemptionsOfFamily(familyId)
-                    familyDao.deleteRewardsOfFamily(familyId)
-                    familyDao.deleteFamily(familyId)
-                }
-            }
-        }
-        return result
-    }
-
-    /**
-     * Đưa 1 thành viên ra khỏi nhóm và trả việc dang dở của họ về cho cả nhà
-     * (trong cùng 1 transaction: không có lúc nào việc bị kẹt với người đã rời nhóm).
-     */
-    private suspend fun detachMember(familyId: String, memberId: String) {
-        database.withTransaction { detachMemberInTransaction(familyId, memberId) }
-    }
-
-    /** Các bước tách thành viên - chỉ gọi khi ĐANG ở trong một transaction. */
-    private suspend fun detachMemberInTransaction(familyId: String, memberId: String) {
-        familyDao.clearUserFamily(memberId)
-        familyDao.releaseUnfinishedTasks(familyId, memberId)
-        familyDao.releaseSchedules(familyId, memberId)
-    }
-
-    /** Sinh mã 6 chữ số ngẫu nhiên (SecureRandom) và đảm bảo không trùng với nhóm khác. */
-    private suspend fun generateUniqueInviteCode(): String? {
-        repeat(MAX_CODE_ATTEMPTS) {
-            val code = (100000 + random.nextInt(900000)).toString()
-            if (familyDao.countInviteCode(code) == 0) return code
-        }
-        return null
+        assertNull(db.familyDao().getFamilyByIdOnce(family.id))
+        assertNull(db.recurringScheduleDao().getById("rec"))
+        assertTrue(db.taskDao().getTasksByFamily(family.id).first().isEmpty())
+        assertTrue(db.rewardDao().getRewardsByFamily(family.id).first().isEmpty())
     }
 }

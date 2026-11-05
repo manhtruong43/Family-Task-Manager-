@@ -173,6 +173,7 @@ class FamilyRepository @Inject constructor(
                     familyDao.deleteFamily(familyId)
                 }
             }
+            Unit
         }
         return result
     }
