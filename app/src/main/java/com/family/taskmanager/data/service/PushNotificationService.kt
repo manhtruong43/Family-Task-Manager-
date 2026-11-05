@@ -36,6 +36,9 @@ class PushNotificationService @Inject constructor(
         const val CHANNEL_ID_REWARDS = "channel_rewards"
         const val CHANNEL_ID_REMINDERS = "channel_reminders"
 
+        /** Id cố định: mã OTP mới thay thế thông báo OTP cũ thay vì xếp chồng. */
+        private const val OTP_NOTIFICATION_ID = 9999
+
         private val nextNotificationId = AtomicInteger(1000)
     }
 
@@ -122,13 +125,14 @@ class PushNotificationService @Inject constructor(
         )
     }
 
-    /** Thông báo mã xác thực OTP mô phỏng. */
+    /** Thông báo mã xác thực OTP mô phỏng (chữ theo ngôn ngữ đang chọn). */
     fun sendOtpNotification(email: String, otpCode: String) {
+        val res = ServiceLocale.localizedContext(context)
         post(
             channelId = CHANNEL_ID_REMINDERS,
-            notificationId = 9999,
-            title = "🔐 Mã xác thực OTP (Mô phỏng Email)",
-            message = "Mã OTP cho $email là: $otpCode. Hiệu lực 5 phút.",
+            notificationId = OTP_NOTIFICATION_ID,
+            title = res.getString(R.string.noti_otp_title),
+            message = res.getString(R.string.noti_otp_message, email, otpCode),
             priority = NotificationCompat.PRIORITY_HIGH
         )
     }

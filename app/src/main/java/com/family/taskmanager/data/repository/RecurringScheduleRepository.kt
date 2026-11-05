@@ -1,6 +1,7 @@
 package com.family.taskmanager.data.repository
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.family.taskmanager.R
 import com.family.taskmanager.data.local.AppDatabase
 import com.family.taskmanager.data.local.RecurringScheduleDao
@@ -16,6 +17,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -52,11 +54,21 @@ data class RecurringScheduleInput(
 @Singleton
 class RecurringScheduleRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    database: AppDatabase,
+    private val database: AppDatabase,
     private val notificationRepository: NotificationRepository
 ) {
     private val dao: RecurringScheduleDao = database.recurringScheduleDao()
     private val generateMutex = Mutex()
+
+    /**
+     * Đồng hồ dùng để xác định "hôm nay" và "bây giờ". Mặc định là giờ của máy;
+     * test gán một đồng hồ cố định để kết quả không phụ thuộc lúc chạy (vd: gần nửa đêm).
+     */
+    internal var clock: Clock = Clock.systemDefaultZone()
+
+    private fun zone(): ZoneId = clock.zone
+    private fun today(): LocalDate = LocalDate.now(clock)
+    private fun nowMillis(): Long = clock.millis()
 
     fun observeSchedules(familyId: String): Flow<List<RecurringSchedule>> =
         dao.observeByFamily(familyId)
@@ -91,7 +103,7 @@ class RecurringScheduleRepository @Inject constructor(
             dueMinuteOfDay = input.dueMinuteOfDay.coerceIn(0, 24 * 60 - 1),
             isActive = existing?.isActive ?: true,
             createdByUserId = existing?.createdByUserId ?: actor.id,
-            createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+            createdAt = existing?.createdAt ?: nowMillis(),
             lastGeneratedEpochDay = existing?.lastGeneratedEpochDay ?: -1L
         )
         dao.upsert(skipTodayIfAlreadyPastDue(draft))
@@ -127,11 +139,11 @@ class RecurringScheduleRepository @Inject constructor(
      * (tránh vừa tạo xong đã có một nhiệm vụ quá hạn). Lần đầu sẽ là kỳ kế tiếp.
      */
     private fun skipTodayIfAlreadyPastDue(schedule: RecurringSchedule): RecurringSchedule {
-        val zone = ZoneId.systemDefault()
-        val today = LocalDate.now(zone)
+        val zone = zone()
+        val today = today()
         val todayEpoch = today.toEpochDay()
         val alreadyPast = schedule.occursOn(today) &&
-                schedule.dueAtMillis(today, zone) <= System.currentTimeMillis()
+                schedule.dueAtMillis(today, zone) <= nowMillis()
         return if (alreadyPast && schedule.lastGeneratedEpochDay < todayEpoch) {
             schedule.copy(lastGeneratedEpochDay = todayEpoch)
         } else {
@@ -145,48 +157,65 @@ class RecurringScheduleRepository @Inject constructor(
      * Sinh nhiệm vụ của hôm nay cho mọi lịch trình đang bật. Gọi nhiều lần vẫn an toàn:
      * - lastGeneratedEpochDay chặn sinh lại trong cùng ngày;
      * - id nhiệm vụ cố định theo ngày + INSERT IGNORE chặn trùng tuyệt đối.
+     *
+     * Mỗi lịch trình được xử lý trong MỘT transaction: đọc lại lịch, kiểm tra nhóm và người nhận,
+     * thêm nhiệm vụ, đánh dấu đã sinh. Room chỉ chạy 1 transaction ghi tại một thời điểm, nên việc
+     * giải tán nhóm / xóa thành viên (FamilyRepository, cũng chạy trong transaction) không thể chen
+     * vào giữa -> không sinh việc cho nhóm vừa bị xóa hay giao việc cho người vừa rời nhóm.
+     * Thông báo chỉ gửi SAU khi transaction đã hoàn tất.
      * @return số nhiệm vụ mới được tạo.
      */
     suspend fun generateDueTasks(): Int = generateMutex.withLock {
-        val zone = ZoneId.systemDefault()
-        val today = LocalDate.now(zone)
+        val zone = zone()
+        val today = today()
         val todayEpoch = today.toEpochDay()
-        val now = System.currentTimeMillis()
-        var created = 0
+        val now = nowMillis()
+        val createdTasks = mutableListOf<Pair<RecurringSchedule, Task>>()
 
-        dao.getActiveSchedules().forEach { schedule ->
-            if (schedule.lastGeneratedEpochDay >= todayEpoch) return@forEach
-            if (!schedule.occursOn(today)) return@forEach
+        dao.getActiveSchedules().forEach { candidate ->
+            val created = database.withTransaction<Pair<RecurringSchedule, Task>?> {
+                // Đọc lại trong transaction: danh sách bên ngoài có thể đã cũ
+                val schedule = dao.getById(candidate.id) ?: return@withTransaction null
+                if (!schedule.isActive) return@withTransaction null
+                if (schedule.lastGeneratedEpochDay >= todayEpoch) return@withTransaction null
+                if (!schedule.occursOn(today)) return@withTransaction null
 
-            // Người được giao đã rời nhóm -> giao cho cả nhà để việc không bị "mồ côi"
-            val assigneeStillInFamily = schedule.assignedToUserId.isBlank() ||
-                    dao.countUserInFamily(schedule.assignedToUserId, schedule.familyId) > 0
-            val effective = if (assigneeStillInFamily) schedule
-            else schedule.copy(assignedToUserId = "", assignedToUserName = "")
+                // Nhóm gia đình đã bị giải tán -> tắt lịch trình "mồ côi", không sinh việc nữa
+                if (dao.countFamily(schedule.familyId) == 0) {
+                    dao.upsert(schedule.copy(isActive = false))
+                    return@withTransaction null
+                }
 
-            val task = Task(
-                id = schedule.taskIdFor(today),
-                title = schedule.title,
-                description = schedule.description,
-                familyId = schedule.familyId,
-                assignedToUserId = effective.assignedToUserId,
-                assignedToUserName = effective.assignedToUserName,
-                createdByUserId = schedule.createdByUserId,
-                priority = schedule.priority,
-                status = TaskStatus.TODO,
-                points = schedule.points,
-                deadlineTimestamp = schedule.dueAtMillis(today, zone),
-                createdAt = now
-            )
-            val rowId = dao.insertTaskIfAbsent(task)
-            dao.markGenerated(schedule.id, todayEpoch)
+                // Người được giao đã rời nhóm -> giao cho cả nhà để việc không bị "mồ côi"
+                val assigneeStillInFamily = schedule.assignedToUserId.isBlank() ||
+                        dao.countUserInFamily(schedule.assignedToUserId, schedule.familyId) > 0
+                val effective = if (assigneeStillInFamily) schedule
+                else schedule.copy(assignedToUserId = "", assignedToUserName = "")
 
-            if (rowId != -1L) {
-                created++
-                notifyAssignees(effective, task)
+                val task = Task(
+                    id = schedule.taskIdFor(today),
+                    title = schedule.title,
+                    description = schedule.description,
+                    familyId = schedule.familyId,
+                    assignedToUserId = effective.assignedToUserId,
+                    assignedToUserName = effective.assignedToUserName,
+                    createdByUserId = schedule.createdByUserId,
+                    priority = schedule.priority,
+                    status = TaskStatus.TODO,
+                    points = schedule.points,
+                    deadlineTimestamp = schedule.dueAtMillis(today, zone),
+                    createdAt = now
+                )
+                val rowId = dao.insertTaskIfAbsent(task)
+                dao.markGenerated(schedule.id, todayEpoch)
+                if (rowId != -1L) effective to task else null
             }
+            if (created != null) createdTasks += created
         }
-        created
+
+        // Thông báo là việc ngoài DB -> chỉ gửi sau khi các transaction đã commit
+        createdTasks.forEach { (schedule, task) -> notifyAssignees(schedule, task) }
+        createdTasks.size
     }
 
     private suspend fun notifyAssignees(schedule: RecurringSchedule, task: Task) {

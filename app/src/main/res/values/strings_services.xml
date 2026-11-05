@@ -196,4 +196,8 @@
         <item>T7</item>
         <item>CN</item>
     </string-array>
+
+    <!-- OTP mô phỏng (Trường gọi từ LoginViewModel) -->
+    <string name="noti_otp_title">🔐 Mã xác thực OTP (mô phỏng email)</string>
+    <string name="noti_otp_message">Mã OTP cho %1$s là: %2$s. Hiệu lực 5 phút.</string>
 </resources>
