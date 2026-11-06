@@ -183,6 +183,7 @@
     <string name="rec_err_points">Điểm phải từ 1 đến %d</string>
     <string name="rec_err_days">Chọn ít nhất 1 ngày trong tuần</string>
     <string name="rec_err_general">Không tìm thấy lịch trình, vui lòng thử lại</string>
+    <string name="rec_err_assignee">Không thể tự giao lịch trình cho chính mình (hoặc người nhận không còn trong gia đình). Lịch đang giao cho bạn thì nhờ Bố/Mẹ còn lại sửa.</string>
     <string name="rec_projected_header">🔁 Dự kiến từ lịch trình cố định (%d)</string>
     <string name="rec_projected_note">Sẽ tự tạo vào ngày này · hạn %s</string>
     <string name="rec_noti_title">🔁 Việc định kỳ hôm nay</string>

@@ -68,6 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.family.taskmanager.data.repository.TaskPermissions
 import com.family.taskmanager.R
 import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.UserRole
@@ -133,6 +134,7 @@ fun CalendarScreen(
                     RecurringResult.INVALID_POINTS -> context.getString(R.string.rec_err_points, RecurringSchedule.MAX_POINTS)
                     RecurringResult.NO_DAYS -> context.getString(R.string.rec_err_days)
                     RecurringResult.NOT_FOUND -> context.getString(R.string.rec_err_general)
+                    RecurringResult.INVALID_ASSIGNEE -> context.getString(R.string.rec_err_assignee)
                 }
             )
         }
@@ -145,10 +147,11 @@ fun CalendarScreen(
 
     val now = System.currentTimeMillis()
 
-    // Lọc "Của tôi": nhiệm vụ giao cho mình hoặc giao cho cả nhà
-    val visibleTasks = remember(tasks, onlyMine, currentUser?.id) {
+    // Lọc "Của tôi": dùng chung quy tắc với màn Trang chủ (TaskPermissions.isMine):
+    // việc giao cho mình, hoặc việc chung của cả nhà mà mình không phải người giao
+    val visibleTasks = remember(tasks, onlyMine, currentUser) {
         if (!onlyMine) tasks
-        else tasks.filter { it.assignedToUserId == currentUser?.id || it.assignedToUserId.isBlank() }
+        else tasks.filter { TaskPermissions.isMine(currentUser, it) }
     }
 
     // Ngày đầu tuần (Thứ Hai)
@@ -185,11 +188,12 @@ fun CalendarScreen(
 
     // Lịch trình đang bật (đã lọc "Của tôi" nếu cần) -> dùng để hiện việc DỰ KIẾN của các ngày sắp tới.
     // Hôm nay và quá khứ đã có nhiệm vụ thật được sinh ra nên không hiện dự kiến nữa.
+    // "Của tôi" theo cùng quy tắc với nhiệm vụ thật: giao cho mình, hoặc việc chung mà mình không phải người giao
     val visibleSchedules = remember(schedules, onlyMine, currentUser?.id) {
         schedules.filter { schedule ->
             schedule.isActive && (!onlyMine ||
                     schedule.assignedToUserId == currentUser?.id ||
-                    schedule.assignedToUserId.isBlank())
+                    (schedule.assignedToUserId.isBlank() && schedule.createdByUserId != currentUser?.id))
         }
     }
     val todayStart = startOfDay(System.currentTimeMillis())
@@ -494,7 +498,8 @@ fun CalendarScreen(
         RecurringScheduleSheet(
             schedules = schedules,
             isAdmin = isAdmin,
-            members = members,
+            // Chọn được cả Bố/Mẹ kia, trừ chính mình (không tự giao việc cho mình)
+            members = members.filter { it.id != currentUser?.id },
             isProcessing = recurringBusy,
             onDismiss = { showSchedules = false },
             onSave = { editingId, input, onSaved ->

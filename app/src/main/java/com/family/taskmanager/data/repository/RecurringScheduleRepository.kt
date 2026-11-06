@@ -27,7 +27,9 @@ import javax.inject.Singleton
 /** Kết quả các thao tác trên lịch trình (UI dịch sang thông báo tương ứng). */
 enum class RecurringResult {
     SAVED, DELETED, PAUSED, RESUMED,
-    NOT_ALLOWED, INVALID_TITLE, INVALID_POINTS, NO_DAYS, NOT_FOUND
+    NOT_ALLOWED, INVALID_TITLE, INVALID_POINTS, NO_DAYS, NOT_FOUND,
+    /** Tự giao lịch trình cho chính mình, hoặc người nhận không thuộc gia đình. */
+    INVALID_ASSIGNEE
 }
 
 /** Dữ liệu form tạo / sửa lịch trình. */
@@ -88,6 +90,16 @@ class RecurringScheduleRepository @Inject constructor(
         if (editingId != null && (existing == null || existing.familyId != actor.familyId)) {
             return RecurringResult.NOT_FOUND
         }
+
+        // Cùng quy tắc với giao việc thường: người nhận phải cùng nhà và KHÔNG phải chính người giao
+        // (nếu không sẽ tự duyệt việc của mình). Lịch đang giao cho chính mình thì nhờ Bố/Mẹ kia sửa.
+        val assignee = input.assignee
+        if (assignee != null &&
+            (assignee.id == actor.id || dao.countUserInFamily(assignee.id, actor.familyId) == 0)
+        ) {
+            return RecurringResult.INVALID_ASSIGNEE
+        }
+        if (existing != null && existing.assignedToUserId == actor.id) return RecurringResult.INVALID_ASSIGNEE
 
         val draft = RecurringSchedule(
             id = existing?.id ?: UUID.randomUUID().toString(),
@@ -204,7 +216,9 @@ class RecurringScheduleRepository @Inject constructor(
                     status = TaskStatus.TODO,
                     points = schedule.points,
                     deadlineTimestamp = schedule.dueAtMillis(today, zone),
-                    createdAt = now
+                    createdAt = now,
+                    // Lịch giao cho cả nhà -> việc chung "ai làm cũng được" (bị từ chối thì trả lại cả nhà)
+                    openToAll = effective.assignedToUserId.isEmpty()
                 )
                 val rowId = dao.insertTaskIfAbsent(task)
                 dao.markGenerated(schedule.id, todayEpoch)
@@ -220,10 +234,11 @@ class RecurringScheduleRepository @Inject constructor(
 
     private suspend fun notifyAssignees(schedule: RecurringSchedule, task: Task) {
         val res = ServiceLocale.localizedContext(context)
-        val receivers = if (schedule.assignedToUserId.isNotBlank()) {
-            listOf(schedule.assignedToUserId)
+        // Việc chung: báo cho mọi người có quyền nhận (cả Bố/Mẹ kia), trừ người giao - giống TaskRepository
+        val receivers = if (task.assignedToUserId.isNotBlank()) {
+            listOf(task.assignedToUserId)
         } else {
-            dao.getUserIdsByRole(schedule.familyId, UserRole.MEMBER)
+            dao.getUserIdsInFamily(schedule.familyId).filter { it != task.createdByUserId }
         }
         if (receivers.isEmpty()) return
 
