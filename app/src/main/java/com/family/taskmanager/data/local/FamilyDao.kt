@@ -63,7 +63,7 @@ interface FamilyDao {
      */
     @Query(
         "UPDATE tasks SET assignedToUserId = '', assignedToUserName = '', status = 'TODO', " +
-            "proofImageUrl = '', proofNote = '' " +
+            "proofImageUrl = '', proofNote = '', openToAll = 1 " +
             "WHERE familyId = :familyId AND assignedToUserId = :userId " +
             "AND status IN ('TODO', 'IN_PROGRESS', 'REJECTED', 'PENDING_APPROVAL')"
     )
