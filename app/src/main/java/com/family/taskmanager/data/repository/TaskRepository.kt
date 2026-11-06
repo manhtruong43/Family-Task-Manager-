@@ -10,6 +10,7 @@ import com.family.taskmanager.data.local.TaskReactionDao
 import com.family.taskmanager.data.local.UserDao
 import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.model.Task
+import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.TaskReaction
 import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
@@ -81,23 +82,49 @@ class TaskRepository @Inject constructor(
         if (task.title.isBlank() || task.points !in 0..MAX_TASK_POINTS) {
             return TaskActionResult.INVALID_INPUT
         }
-
-        taskDao.insertTask(task)
-
-        val res = ServiceLocale.localizedContext(context)
-        val receivers = if (task.assignedToUserId.isNotEmpty()) {
-            listOf(task.assignedToUserId)
-        } else {
-            // Việc giao cho cả nhà -> báo cho tất cả các Con
-            userDao.getUsersByRoleSync(task.familyId, UserRole.MEMBER).map { it.id }
+        // Giao đích danh: người nhận phải cùng nhà và không phải chính người giao
+        if (task.assignedToUserId.isNotEmpty()) {
+            val assignee = userDao.getUserByIdSync(task.assignedToUserId)
+            if (!TaskPermissions.canAssignTo(freshActor, assignee)) return TaskActionResult.INVALID_INPUT
         }
-        val title = res.getString(R.string.tk_noti_new_title)
-        val message = res.getString(
-            if (task.assignedToUserId.isNotEmpty()) R.string.tk_noti_new_message else R.string.tk_noti_new_all_message,
-            task.title,
-            task.points
-        )
-        notifyUsers(receivers, title, message)
+
+        // Không giao đích danh = việc chung "ai làm cũng được"
+        val toInsert = task.copy(openToAll = task.assignedToUserId.isEmpty())
+        taskDao.insertTask(toInsert)
+
+        notifyNewTask(toInsert)
+        return TaskActionResult.SUCCESS
+    }
+
+    /**
+     * "Mỗi người đều làm": tạo cho mỗi người trong [assigneeIds] một nhiệm vụ riêng từ [template]
+     * (cùng tên, mô tả, điểm, hạn). Kiểm tra tất cả trước, rồi lưu tất cả trong 1 transaction:
+     * hoặc tạo đủ cho mọi người, hoặc không tạo việc nào.
+     */
+    suspend fun createTaskForEach(template: Task, assigneeIds: List<String>, actor: User): TaskActionResult {
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
+        if (!TaskPermissions.canCreate(freshActor) || template.familyId != freshActor.familyId) {
+            return TaskActionResult.NOT_ALLOWED
+        }
+        val ids = assigneeIds.filter { it.isNotBlank() }.distinct()
+        if (template.title.isBlank() || template.points !in 0..MAX_TASK_POINTS || ids.isEmpty()) {
+            return TaskActionResult.INVALID_INPUT
+        }
+        val assignees = ids.map { userDao.getUserByIdSync(it) }
+        if (assignees.any { !TaskPermissions.canAssignTo(freshActor, it) }) return TaskActionResult.INVALID_INPUT
+
+        val tasks = assignees.filterNotNull().map { assignee ->
+            template.copy(
+                id = UUID.randomUUID().toString(),
+                assignedToUserId = assignee.id,
+                assignedToUserName = assignee.name,
+                createdByUserId = freshActor.id,
+                status = TaskStatus.TODO,
+                openToAll = false
+            )
+        }
+        database.withTransaction { tasks.forEach { taskDao.insertTask(it) } }
+        tasks.forEach { notifyNewTask(it) }
         return TaskActionResult.SUCCESS
     }
 
@@ -188,13 +215,16 @@ class TaskRepository @Inject constructor(
     // ─────────────────────────── Bố/Mẹ duyệt ───────────────────────────
 
     suspend fun approveTask(task: Task, actor: User): TaskActionResult {
-        val check = checkReviewer(task.id, actor)
-        if (check != TaskActionResult.SUCCESS) return check
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
 
-        // Đổi trạng thái + cộng điểm + ghi thông báo trong CÙNG một transaction:
+        // Kiểm tra quyền + đổi trạng thái + cộng điểm + ghi thông báo trong CÙNG một transaction:
+        // quyền được xét trên lượt nộp ĐANG có trong DB (không phải bản cũ trên màn hình), và
         // lỗi ở bất kỳ bước nào thì rollback toàn bộ, không có chuyện "đã duyệt nhưng chưa cộng điểm".
         val res = ServiceLocale.localizedContext(context)
+        var denied: TaskActionResult? = null
         val approvedTask = database.withTransaction<Task?> {
+            denied = reviewError(freshActor, taskDao.getTaskById(task.id))
+            if (denied != null) return@withTransaction null
             // Chỉ chuyển sang COMPLETED khi đang PENDING_APPROVAL -> bấm 2 lần chỉ cộng điểm 1 lần
             val rowsUpdated = taskDao.updateTaskStatusConditional(
                 taskId = task.id,
@@ -217,7 +247,7 @@ class TaskRepository @Inject constructor(
                 )
             }
             currentTask
-        } ?: return TaskActionResult.INVALID_STATE
+        } ?: return denied ?: TaskActionResult.INVALID_STATE
 
         // Thông báo đẩy là việc ngoài DB nên chỉ gửi sau khi transaction đã commit
         if (approvedTask.assignedToUserId.isNotEmpty() && approvedTask.points > 0) {
@@ -230,30 +260,165 @@ class TaskRepository @Inject constructor(
     }
 
     suspend fun rejectTask(task: Task, actor: User): TaskActionResult {
-        val check = checkReviewer(task.id, actor)
-        if (check != TaskActionResult.SUCCESS) return check
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
 
-        // Chỉ từ chối khi đang PENDING_APPROVAL
-        val rowsUpdated = taskDao.updateTaskStatusConditional(
-            taskId = task.id,
-            expectedStatus = TaskStatus.PENDING_APPROVAL,
-            newStatus = TaskStatus.REJECTED
-        )
-        if (rowsUpdated <= 0) return TaskActionResult.INVALID_STATE
+        // Kiểm tra quyền + đổi trạng thái trong cùng 1 transaction (như approveTask).
+        // Chỉ từ chối khi đang PENDING_APPROVAL. Việc chung ("ai làm cũng được") bị từ chối
+        // thì trả lại cho cả nhà - ai cũng làm lại được, không chỉ người vừa nộp.
+        var submitterId = ""
+        var denied: TaskActionResult? = null
+        val rejected = database.withTransaction<Task?> {
+            denied = reviewError(freshActor, taskDao.getTaskById(task.id))
+            if (denied != null) return@withTransaction null
+            val rowsUpdated = taskDao.updateTaskStatusConditional(
+                taskId = task.id,
+                expectedStatus = TaskStatus.PENDING_APPROVAL,
+                newStatus = TaskStatus.REJECTED
+            )
+            if (rowsUpdated <= 0) return@withTransaction null
+            val current = taskDao.getTaskById(task.id) ?: return@withTransaction null
+            submitterId = current.assignedToUserId
+            if (current.openToAll) {
+                val released = current.copy(assignedToUserId = "", assignedToUserName = "")
+                taskDao.updateTask(released)
+                released
+            } else {
+                current
+            }
+        } ?: return denied ?: TaskActionResult.INVALID_STATE
 
-        val currentTask = taskDao.getTaskById(task.id) ?: task
-        if (currentTask.assignedToUserId.isNotEmpty()) {
+        if (submitterId.isNotEmpty()) {
             val res = ServiceLocale.localizedContext(context)
             notifyUsers(
-                listOf(currentTask.assignedToUserId),
+                listOf(submitterId),
                 res.getString(R.string.tk_noti_rejected_title),
-                res.getString(R.string.tk_noti_rejected_message, currentTask.title)
+                res.getString(R.string.tk_noti_rejected_message, rejected.title)
             )
         }
         return TaskActionResult.SUCCESS
     }
 
-    suspend fun deleteTask(task: Task) = taskDao.deleteTask(task)
+    // ─────────────────────────── Bố/Mẹ sửa / hủy việc giao nhầm ───────────────────────────
+
+    /**
+     * Sửa nhiệm vụ khi chưa ai nộp minh chứng (Chưa làm / Đang làm / Bị từ chối).
+     * Đổi người làm -> việc về lại "Chưa làm", xóa minh chứng cũ, báo cho người mới và người cũ.
+     * [assigneeId] rỗng / null = giao cho cả nhà.
+     */
+    suspend fun updateTask(
+        taskId: String,
+        title: String,
+        description: String,
+        assigneeId: String?,
+        priority: TaskPriority,
+        points: Int,
+        deadlineTimestamp: Long,
+        actor: User
+    ): TaskActionResult {
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
+        val newAssigneeId = assigneeId.orEmpty()
+
+        // Đọc + kiểm tra + ghi trong 1 transaction: không sửa chồng lên lúc con vừa nộp minh chứng.
+        // Thứ tự kiểm tra: có việc không -> có quyền sửa không -> còn sửa được không -> dữ liệu mới có hợp lệ không
+        // (người không có quyền luôn nhận NOT_ALLOWED, không bị lộ lỗi dữ liệu).
+        var result = TaskActionResult.SUCCESS
+        var before: Task? = null
+        var newAssignee: User? = null
+        val after = database.withTransaction<Task?> {
+            val task = taskDao.getTaskById(taskId)
+            if (newAssigneeId.isNotEmpty()) newAssignee = userDao.getUserByIdSync(newAssigneeId)
+            val error = when {
+                task == null -> TaskActionResult.NOT_FOUND
+                !TaskPermissions.canManage(freshActor, task) -> TaskActionResult.NOT_ALLOWED
+                task.status !in TaskPermissions.EDITABLE_STATUSES -> TaskActionResult.INVALID_STATE
+                title.isBlank() || points !in 0..MAX_TASK_POINTS -> TaskActionResult.INVALID_INPUT
+                newAssigneeId.isNotEmpty() && !TaskPermissions.canAssignTo(freshActor, newAssignee) ->
+                    TaskActionResult.INVALID_INPUT
+                else -> null
+            }
+            if (error != null) {
+                result = error
+                return@withTransaction null
+            }
+            val current = task!!
+            before = current
+            val assigneeChanged = newAssigneeId != current.assignedToUserId
+            val updated = current.copy(
+                title = title.trim(),
+                description = description.trim(),
+                priority = priority,
+                points = points,
+                deadlineTimestamp = deadlineTimestamp,
+                assignedToUserId = newAssigneeId,
+                assignedToUserName = newAssignee?.name.orEmpty(),
+                status = if (assigneeChanged) TaskStatus.TODO else current.status,
+                proofImageUrl = if (assigneeChanged) "" else current.proofImageUrl,
+                proofNote = if (assigneeChanged) "" else current.proofNote,
+                openToAll = newAssigneeId.isEmpty()
+            )
+            taskDao.updateTask(updated)
+            updated
+        } ?: return result
+
+        // Thông báo chỉ gửi sau khi transaction đã commit
+        val old = before
+        if (old != null && old.assignedToUserId != after.assignedToUserId) {
+            val res = ServiceLocale.localizedContext(context)
+            val newReceivers = receiversOf(after).filter { it != freshActor.id }
+            notifyUsers(
+                newReceivers,
+                res.getString(R.string.tk_noti_new_title),
+                res.getString(
+                    if (after.assignedToUserId.isNotEmpty()) R.string.tk_noti_new_message else R.string.tk_noti_new_all_message,
+                    after.title,
+                    after.points
+                )
+            )
+            val oldReceivers = receiversOf(old).filter { it != freshActor.id && it !in newReceivers }
+            notifyUsers(
+                oldReceivers,
+                res.getString(R.string.tk_noti_cancelled_title),
+                res.getString(R.string.tk_noti_reassigned_message, old.title)
+            )
+        }
+        return TaskActionResult.SUCCESS
+    }
+
+    /**
+     * Hủy nhiệm vụ chưa hoàn thành: xóa nhiệm vụ + cảm xúc của nó, báo cho người được giao.
+     * Báo thức nhắc hạn tự hủy (DeadlineReminderScheduler theo dõi bảng tasks).
+     * Ảnh minh chứng do HomeViewModel xóa sau khi hủy thành công.
+     */
+    suspend fun cancelTask(taskId: String, actor: User): TaskActionResult {
+        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
+
+        var result = TaskActionResult.SUCCESS
+        val cancelled = database.withTransaction<Task?> {
+            val task = taskDao.getTaskById(taskId)
+            val error = when {
+                task == null -> TaskActionResult.NOT_FOUND
+                !TaskPermissions.canManage(freshActor, task) -> TaskActionResult.NOT_ALLOWED
+                task.status !in TaskPermissions.CANCELLABLE_STATUSES -> TaskActionResult.INVALID_STATE
+                else -> null
+            }
+            if (error != null) {
+                result = error
+                return@withTransaction null
+            }
+            val current = task!!
+            taskReactionDao.deleteReactionsOfTask(current.id)
+            taskDao.deleteTask(current)
+            current
+        } ?: return result
+
+        val res = ServiceLocale.localizedContext(context)
+        notifyUsers(
+            receiversOf(cancelled).filter { it != freshActor.id },
+            res.getString(R.string.tk_noti_cancelled_title),
+            res.getString(R.string.tk_noti_cancelled_message, cancelled.title)
+        )
+        return TaskActionResult.SUCCESS
+    }
 
     // ─────────────────────────── Tiện ích ───────────────────────────
 
@@ -264,11 +429,30 @@ class TaskRepository @Inject constructor(
         else TaskActionResult.NOT_ALLOWED
     }
 
-    private suspend fun checkReviewer(taskId: String, actor: User): TaskActionResult {
-        val task = taskDao.getTaskById(taskId) ?: return TaskActionResult.NOT_FOUND
-        val freshActor = userDao.getUserByIdSync(actor.id) ?: return TaskActionResult.NOT_ALLOWED
-        return if (TaskPermissions.canReview(freshActor, task)) TaskActionResult.SUCCESS
-        else TaskActionResult.NOT_ALLOWED
+    /** Lỗi khi duyệt / từ chối [task] (đọc trong transaction), hoặc null nếu được phép. */
+    private fun reviewError(actor: User, task: Task?): TaskActionResult? = when {
+        task == null -> TaskActionResult.NOT_FOUND
+        !TaskPermissions.canReview(actor, task) -> TaskActionResult.NOT_ALLOWED
+        else -> null
+    }
+
+    /** Người liên quan tới 1 việc: người được giao, hoặc cả nhà trừ người giao nếu là việc chung. */
+    private suspend fun receiversOf(task: Task): List<String> =
+        if (task.assignedToUserId.isNotEmpty()) listOf(task.assignedToUserId)
+        else userDao.getUsersByFamilySync(task.familyId).map { it.id }.filter { it != task.createdByUserId }
+
+    /** Báo "nhiệm vụ mới" cho người được giao (hoặc cả nhà nếu là việc chung). */
+    private suspend fun notifyNewTask(task: Task) {
+        val res = ServiceLocale.localizedContext(context)
+        notifyUsers(
+            receiversOf(task),
+            res.getString(R.string.tk_noti_new_title),
+            res.getString(
+                if (task.assignedToUserId.isNotEmpty()) R.string.tk_noti_new_message else R.string.tk_noti_new_all_message,
+                task.title,
+                task.points
+            )
+        )
     }
 
     /** Lưu thông báo vào hộp thư từng người nhận rồi bắn 1 thông báo đẩy. */

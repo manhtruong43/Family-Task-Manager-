@@ -77,8 +77,9 @@ fun FamilySetupScreen(
     val isAdmin = currentUser.role == UserRole.ADMIN
     var familyName by rememberSaveable { mutableStateOf("") }
     var inviteCodeInput by rememberSaveable { mutableStateOf("") }
-    // Bố/Mẹ: false = tạo nhóm mới, true = tham gia nhóm đã có. Con luôn tham gia.
-    var parentJoinMode by rememberSaveable { mutableStateOf(false) }
+    // Bố/Mẹ: hỏi trước đã có mã mời hay chưa (true = đã có mã -> điền mã; false = chưa có -> tạo mã mới).
+    // Con luôn ở chế độ điền mã mời (chỉ Bố hoặc Mẹ mới được tạo mã gia đình).
+    var parentJoinMode by rememberSaveable { mutableStateOf(true) }
     val showJoinForm = !isAdmin || parentJoinMode
 
     val state by viewModel.state.collectAsState()
@@ -203,29 +204,54 @@ fun FamilySetupScreen(
                     }
                 } else {
                     if (isAdmin) {
-                        // ─── Bố/Mẹ: chọn tạo nhóm mới hay tham gia nhóm đã có ───
-                        Row(
+                        // ─── Hỏi Bố/Mẹ trước: Đã có mã mời chưa? ───
+                        GlassCard(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            backgroundColor = Color.White.copy(alpha = 0.1f)
                         ) {
-                            ModeButton(
-                                text = stringResource(R.string.fam_mode_create),
-                                selected = !parentJoinMode,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    parentJoinMode = false
-                                    viewModel.clearError()
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.fam_ask_has_code_title),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = stringResource(R.string.fam_ask_has_code_subtitle),
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    ModeButton(
+                                        text = stringResource(R.string.fam_option_has_code),
+                                        selected = parentJoinMode,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            parentJoinMode = true
+                                            viewModel.clearError()
+                                        }
+                                    )
+                                    ModeButton(
+                                        text = stringResource(R.string.fam_option_no_code),
+                                        selected = !parentJoinMode,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            parentJoinMode = false
+                                            viewModel.clearError()
+                                        }
+                                    )
                                 }
-                            )
-                            ModeButton(
-                                text = stringResource(R.string.fam_mode_join),
-                                selected = parentJoinMode,
-                                modifier = Modifier.weight(1f),
-                                onClick = {
-                                    parentJoinMode = true
-                                    viewModel.clearError()
-                                }
-                            )
+                            }
                         }
                         Spacer(modifier = Modifier.height(14.dp))
                     }

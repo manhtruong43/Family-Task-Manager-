@@ -30,7 +30,13 @@ data class Task(
     val deadlineTimestamp: Long = 0L,
     val proofImageUrl: String = "",
     val proofNote: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /**
+     * Việc "ai làm cũng được" (giao cho cả nhà). Khi có người nộp, assignedToUserId được gán
+     * cho người đó; cờ này giúp app nhớ việc vốn là việc chung để trả lại cho cả nhà khi bị từ chối.
+     * Thêm ở phiên bản DB 5 (MIGRATION_4_5).
+     */
+    val openToAll: Boolean = false
 ) {
     fun getProofImageList(): List<String> {
         if (proofImageUrl.isBlank()) return emptyList()

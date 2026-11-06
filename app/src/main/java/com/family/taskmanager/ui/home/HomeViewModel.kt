@@ -178,6 +178,62 @@ class HomeViewModel @Inject constructor(
     fun resetTaskToTodo(taskId: String, onResult: (TaskActionResult) -> Unit = {}) =
         runAction(onResult) { user -> taskRepository.resetTaskToTodo(taskId, user) }
 
+    /** "Mỗi người đều làm": tạo cho mỗi người trong [assignees] một nhiệm vụ riêng. */
+    fun createTaskForEach(
+        title: String,
+        description: String,
+        assignees: List<User>,
+        priority: TaskPriority,
+        points: Int,
+        deadlineTimestamp: Long,
+        onResult: (TaskActionResult) -> Unit = {}
+    ) = runAction(onResult) { user ->
+        val template = Task(
+            id = UUID.randomUUID().toString(),
+            title = title.trim(),
+            description = description.trim(),
+            familyId = user.familyId,
+            createdByUserId = user.id,
+            priority = priority,
+            status = TaskStatus.TODO,
+            points = points,
+            deadlineTimestamp = deadlineTimestamp
+        )
+        taskRepository.createTaskForEach(template, assignees.map { it.id }, user)
+    }
+
+    /** Bố/Mẹ sửa việc giao nhầm (chỉ khi chưa ai nộp minh chứng). [assignedToUser] null = cả nhà. */
+    fun updateTask(
+        taskId: String,
+        title: String,
+        description: String,
+        assignedToUser: User?,
+        priority: TaskPriority,
+        points: Int,
+        deadlineTimestamp: Long,
+        onResult: (TaskActionResult) -> Unit = {}
+    ) = runAction(onResult) { user ->
+        taskRepository.updateTask(
+            taskId = taskId,
+            title = title,
+            description = description,
+            assigneeId = assignedToUser?.id,
+            priority = priority,
+            points = points,
+            deadlineTimestamp = deadlineTimestamp,
+            actor = user
+        )
+    }
+
+    /** Bố/Mẹ hủy việc chưa hoàn thành; hủy xong thì dọn luôn ảnh minh chứng của việc đó. */
+    fun cancelTask(taskId: String, onResult: (TaskActionResult) -> Unit = {}) =
+        runAction(onResult) { user ->
+            val proofPaths = taskRepository.getTaskById(taskId)?.getProofImageList().orEmpty()
+            val result = taskRepository.cancelTask(taskId, user)
+            if (result == TaskActionResult.SUCCESS) proofImageStorage.delete(proofPaths)
+            result
+        }
+
     private fun runAction(
         onResult: (TaskActionResult) -> Unit,
         action: suspend (User) -> TaskActionResult

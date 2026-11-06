@@ -1,5 +1,8 @@
 package com.family.taskmanager.ui.task
 
+import com.family.taskmanager.data.model.UserRole
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
@@ -35,6 +38,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -64,8 +68,15 @@ import java.util.Locale
 @Composable
 fun CreateEditTaskScreen(
     viewModel: HomeViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    /** null = tạo việc mới; khác null = sửa việc có id này. */
+    taskId: String? = null
 ) {
+    val isEditing = taskId != null
+    val currentUser by viewModel.currentUser.collectAsState()
+    val familyTasks by viewModel.familyTasks.collectAsState()
+    val editingTask = taskId?.let { id -> familyTasks.find { it.id == id } }
+
     // Dùng rememberSaveable để dữ liệu đang nhập không bị mất khi xoay màn hình
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
@@ -92,7 +103,9 @@ fun CreateEditTaskScreen(
 
     // Tạo DatePickerDialog mỗi lần bấm để luôn mở đúng ngày đang chọn (kể cả sau khi xoay màn hình)
     val showDatePicker: () -> Unit = {
-        val current = Calendar.getInstance().apply { timeInMillis = selectedDeadlineTimestamp }
+        val current = Calendar.getInstance().apply {
+            timeInMillis = if (selectedDeadlineTimestamp > 0L) selectedDeadlineTimestamp else System.currentTimeMillis()
+        }
         DatePickerDialog(
             context,
             { _, year, month, dayOfMonth ->
@@ -116,15 +129,47 @@ fun CreateEditTaskScreen(
     }
 
     val members by viewModel.familyMembers.collectAsState()
+    // Không tự giao việc cho chính mình (không ai tự duyệt việc của mình)
+    val assignableMembers = members.filter { it.id != currentUser?.id }
     // Lưu id (String) thay vì cả đối tượng User để có thể rememberSaveable
     var selectedAssigneeId by rememberSaveable { mutableStateOf<String?>(null) }
-    val selectedAssignee: User? = members.find { it.id == selectedAssigneeId }
+    val selectedAssignee: User? = assignableMembers.find { it.id == selectedAssigneeId }
     var expandedAssignee by remember { mutableStateOf(false) }
+
+    // Cách giao (chỉ khi tạo mới). Khi sửa: chọn 1 người hoặc "Tất cả" trong ô chọn như cũ.
+    var assignMode by rememberSaveable { mutableStateOf(AssignMode.ONE) }
+    // "Mỗi người đều làm": lưu id các người được tích (String để rememberSaveable được)
+    var eachSelectedIds by rememberSaveable { mutableStateOf(listOf<String>()) }
+    val eachSelected = assignableMembers.filter { it.id in eachSelectedIds }
+    val assigneeValid = when {
+        isEditing -> true
+        assignMode == AssignMode.ONE -> selectedAssignee != null
+        assignMode == AssignMode.EACH -> eachSelected.isNotEmpty()
+        else -> true
+    }
+
+    // Chế độ sửa: điền sẵn dữ liệu cũ đúng 1 lần (xoay màn hình không bị ghi đè lại)
+    var prefilled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(editingTask) {
+        val task = editingTask
+        if (task != null && !prefilled) {
+            title = task.title
+            description = task.description
+            pointsText = task.points.toString()
+            selectedPriority = task.priority
+            // Giữ đúng cả giá trị 0 (việc không có hạn): chỉ đổi khi Bố/Mẹ tự chọn ngày mới
+            selectedDeadlineTimestamp = task.deadlineTimestamp
+            selectedAssigneeId = task.assignedToUserId.ifEmpty { null }
+            prefilled = true
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.create_task_title)) },
+                title = {
+                    Text(stringResource(if (isEditing) R.string.tk_edit_title else R.string.create_task_title))
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -168,47 +213,111 @@ fun CreateEditTaskScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Chọn thành viên được giao
+            // Chọn người làm
             Text(stringResource(R.string.task_assign_to), fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
-            ExposedDropdownMenuBox(
-                expanded = expandedAssignee,
-                onExpandedChange = { expandedAssignee = !expandedAssignee }
-            ) {
-                OutlinedTextField(
-                    value = selectedAssignee?.name ?: stringResource(R.string.task_assign_all),
-                    onValueChange = {},
-                    readOnly = true,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAssignee) },
-                    modifier = Modifier
-                        .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
-                        .fillMaxWidth()
+            if (!isEditing) {
+                // 3 cách giao: Một người / Cả nhà - ai làm cũng được / Mỗi người đều làm
+                AssignModeOption(
+                    selected = assignMode == AssignMode.ONE,
+                    text = stringResource(R.string.tk_mode_one),
+                    onClick = { assignMode = AssignMode.ONE }
                 )
-                ExposedDropdownMenu(
+                AssignModeOption(
+                    selected = assignMode == AssignMode.ANYONE,
+                    text = stringResource(R.string.tk_mode_anyone),
+                    hint = stringResource(R.string.tk_mode_anyone_hint),
+                    onClick = { assignMode = AssignMode.ANYONE }
+                )
+                AssignModeOption(
+                    selected = assignMode == AssignMode.EACH,
+                    text = stringResource(R.string.tk_mode_each),
+                    hint = stringResource(R.string.tk_mode_each_hint),
+                    onClick = { assignMode = AssignMode.EACH }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (isEditing || assignMode == AssignMode.ONE) {
+                ExposedDropdownMenuBox(
                     expanded = expandedAssignee,
-                    onDismissRequest = { expandedAssignee = false }
+                    onExpandedChange = { expandedAssignee = !expandedAssignee }
                 ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.task_assign_all)) },
-                        onClick = {
-                            selectedAssigneeId = null
-                            expandedAssignee = false
+                    OutlinedTextField(
+                        value = selectedAssignee?.name ?: stringResource(
+                            if (isEditing) R.string.task_assign_all else R.string.tk_pick_assignee
+                        ),
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAssignee) },
+                        modifier = Modifier
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandedAssignee,
+                        onDismissRequest = { expandedAssignee = false }
+                    ) {
+                        // Khi sửa vẫn cho chuyển về "Cả nhà - ai làm cũng được"
+                        if (isEditing) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.task_assign_all)) },
+                                onClick = {
+                                    selectedAssigneeId = null
+                                    expandedAssignee = false
+                                }
+                            )
+                        }
+                        assignableMembers.forEach { user ->
+                            DropdownMenuItem(
+                                text = { Text("${user.name} (${roleLabel(user)})") },
+                                onClick = {
+                                    selectedAssigneeId = user.id
+                                    expandedAssignee = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!isEditing && assignMode == AssignMode.EACH) {
+                // Danh sách tích chọn + "Chọn tất cả"
+                val allSelected = assignableMembers.isNotEmpty() && eachSelected.size == assignableMembers.size
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            eachSelectedIds = if (allSelected) emptyList() else assignableMembers.map { it.id }
+                        }
+                ) {
+                    Checkbox(
+                        checked = allSelected,
+                        onCheckedChange = { checked ->
+                            eachSelectedIds = if (checked) assignableMembers.map { it.id } else emptyList()
                         }
                     )
-                    members.forEach { user ->
-                        val roleLabel = if (user.role.name == "ADMIN") {
-                            stringResource(R.string.role_parent)
-                        } else {
-                            stringResource(R.string.role_child)
-                        }
-                        DropdownMenuItem(
-                            text = { Text("${user.name} ($roleLabel)") },
-                            onClick = {
-                                selectedAssigneeId = user.id
-                                expandedAssignee = false
+                    Text(stringResource(R.string.tk_select_all), fontWeight = FontWeight.SemiBold)
+                }
+                assignableMembers.forEach { user ->
+                    val checked = user.id in eachSelectedIds
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                eachSelectedIds = if (checked) eachSelectedIds - user.id else eachSelectedIds + user.id
+                            }
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = { isChecked ->
+                                eachSelectedIds = if (isChecked) eachSelectedIds + user.id else eachSelectedIds - user.id
                             }
                         )
+                        Text("${user.name} (${roleLabel(user)})")
                     }
                 }
             }
@@ -284,7 +393,11 @@ fun CreateEditTaskScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = dateFormat.format(Date(selectedDeadlineTimestamp)),
+                                text = if (selectedDeadlineTimestamp > 0L) {
+                                    dateFormat.format(Date(selectedDeadlineTimestamp))
+                                } else {
+                                    stringResource(R.string.tk_no_deadline)
+                                },
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
                             )
@@ -309,14 +422,7 @@ fun CreateEditTaskScreen(
             Button(
                 onClick = {
                     isSaving = true
-                    viewModel.createTask(
-                        title = title,
-                        description = description,
-                        assignedToUser = selectedAssignee,
-                        priority = selectedPriority,
-                        points = points ?: 0,
-                        deadlineTimestamp = selectedDeadlineTimestamp
-                    ) { result ->
+                    val handleResult: (TaskActionResult) -> Unit = { result ->
                         isSaving = false
                         if (result == TaskActionResult.SUCCESS) {
                             onBack()
@@ -324,17 +430,96 @@ fun CreateEditTaskScreen(
                             Toast.makeText(context, context.getString(result.messageRes()), Toast.LENGTH_SHORT).show()
                         }
                     }
+                    if (taskId != null) {
+                        viewModel.updateTask(
+                            taskId = taskId,
+                            title = title,
+                            description = description,
+                            assignedToUser = selectedAssignee,
+                            priority = selectedPriority,
+                            points = points ?: 0,
+                            deadlineTimestamp = selectedDeadlineTimestamp,
+                            onResult = handleResult
+                        )
+                    } else if (assignMode == AssignMode.EACH) {
+                        viewModel.createTaskForEach(
+                            title = title,
+                            description = description,
+                            assignees = eachSelected,
+                            priority = selectedPriority,
+                            points = points ?: 0,
+                            deadlineTimestamp = selectedDeadlineTimestamp,
+                            onResult = handleResult
+                        )
+                    } else {
+                        viewModel.createTask(
+                            title = title,
+                            description = description,
+                            // ANYONE = việc chung (không giao đích danh)
+                            assignedToUser = if (assignMode == AssignMode.ONE) selectedAssignee else null,
+                            priority = selectedPriority,
+                            points = points ?: 0,
+                            deadlineTimestamp = selectedDeadlineTimestamp,
+                            onResult = handleResult
+                        )
+                    }
                 },
-                enabled = title.isNotBlank() && pointsValid && !isSaving,
+                // Đang sửa mà việc đã bị xóa / chưa tải xong -> khóa nút
+                enabled = title.isNotBlank() && pointsValid && assigneeValid && !isSaving &&
+                        (!isEditing || editingTask != null),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
             ) {
                 Text(
-                    stringResource(if (isSaving) R.string.tk_form_saving else R.string.btn_create_and_assign),
+                    stringResource(
+                        when {
+                            isSaving -> R.string.tk_form_saving
+                            isEditing -> R.string.tk_btn_save_changes
+                            else -> R.string.btn_create_and_assign
+                        }
+                    ),
                     fontSize = 16.sp
                 )
             }
         }
     }
 }
+
+/** Cách giao việc khi TẠO mới. */
+private enum class AssignMode { ONE, ANYONE, EACH }
+
+/** 1 dòng chọn cách giao việc: nút tròn + tên + giải thích ngắn. */
+@Composable
+private fun AssignModeOption(
+    selected: Boolean,
+    text: String,
+    hint: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 2.dp)
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Column {
+            Text(text, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+            if (hint != null) {
+                Text(hint, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun roleLabel(user: User): String = stringResource(
+    when {
+        user.role != UserRole.ADMIN -> R.string.role_child
+        user.avatarUrl == "🧔" -> R.string.role_father_short
+        user.avatarUrl == "👩" -> R.string.role_mother_short
+        else -> R.string.role_parent
+    }
+)

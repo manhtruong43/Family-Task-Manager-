@@ -1,6 +1,7 @@
 package com.family.taskmanager
 
 import com.family.taskmanager.data.model.Task
+import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.repository.TaskPermissions
@@ -18,6 +19,7 @@ class TaskPermissionsTest {
     private val parent = User(id = "admin", name = "Mẹ", email = "me@x.com", role = UserRole.ADMIN, familyId = family)
     private val bin = User(id = "bin", name = "Bin", email = "bin@x.com", role = UserRole.MEMBER, familyId = family)
     private val na = User(id = "na", name = "Na", email = "na@x.com", role = UserRole.MEMBER, familyId = family)
+    private val dad = User(id = "dad", name = "Bố", email = "bo@x.com", role = UserRole.ADMIN, familyId = family)
     private val outsider = User(id = "out", name = "Khách", email = "o@x.com", role = UserRole.ADMIN, familyId = "family-2")
 
     private val taskForBin = Task(
@@ -44,10 +46,11 @@ class TaskPermissionsTest {
     }
 
     @Test
-    fun everyoneTask_onlyChildrenCanWork() {
+    fun everyoneTask_anyoneExceptAssignerCanWork() {
         assertTrue(TaskPermissions.canWork(bin, taskForEveryone))
         assertTrue(TaskPermissions.canWork(na, taskForEveryone))
-        assertFalse(TaskPermissions.canWork(parent, taskForEveryone))
+        assertTrue(TaskPermissions.canWork(dad, taskForEveryone))      // Bố/Mẹ kia cũng nhận được việc chung
+        assertFalse(TaskPermissions.canWork(parent, taskForEveryone))  // người giao thì không
     }
 
     @Test
@@ -74,6 +77,44 @@ class TaskPermissionsTest {
         assertTrue(TaskPermissions.canCreate(parent))
         assertFalse(TaskPermissions.canCreate(bin))
         assertFalse(TaskPermissions.canCreate(parent.copy(familyId = "")))
+    }
+
+    // ─── Không tự duyệt, không tự giao, sửa / hủy ───
+
+    @Test
+    fun parent_cannotReview_taskAssignedToThemself() {
+        val taskForDad = taskForBin.copy(assignedToUserId = dad.id, assignedToUserName = dad.name)
+        assertFalse(TaskPermissions.canReview(dad, taskForDad))     // Bố không tự duyệt
+        assertTrue(TaskPermissions.canReview(parent, taskForDad))   // Mẹ duyệt được
+        assertTrue(TaskPermissions.canWork(dad, taskForDad))        // Bố được làm việc giao cho mình
+    }
+
+    @Test
+    fun canAssignTo_familyMembersExceptYourself() {
+        assertTrue(TaskPermissions.canAssignTo(parent, bin))
+        assertTrue(TaskPermissions.canAssignTo(parent, dad))
+        assertFalse(TaskPermissions.canAssignTo(parent, parent))    // không tự giao cho mình
+        assertFalse(TaskPermissions.canAssignTo(parent, outsider))  // người nhà khác
+        assertFalse(TaskPermissions.canAssignTo(bin, na))           // Con không giao việc
+    }
+
+    @Test
+    fun editAndCancel_rules() {
+        assertTrue(TaskPermissions.canEdit(parent, taskForBin))
+        assertTrue(TaskPermissions.canCancel(dad, taskForBin))
+        assertFalse(TaskPermissions.canEdit(bin, taskForBin))
+        assertFalse(TaskPermissions.canCancel(outsider, taskForBin))
+
+        val pending = taskForBin.copy(status = TaskStatus.PENDING_APPROVAL)
+        assertFalse(TaskPermissions.canEdit(parent, pending))       // đã nộp thì không sửa
+        assertTrue(TaskPermissions.canCancel(parent, pending))      // nhưng vẫn hủy được
+
+        val done = taskForBin.copy(status = TaskStatus.COMPLETED)
+        assertFalse(TaskPermissions.canEdit(parent, done))
+        assertFalse(TaskPermissions.canCancel(parent, done))
+
+        val taskForDad = taskForBin.copy(assignedToUserId = dad.id)
+        assertFalse(TaskPermissions.canCancel(dad, taskForDad))     // không tự hủy việc của mình
     }
 
     @Test

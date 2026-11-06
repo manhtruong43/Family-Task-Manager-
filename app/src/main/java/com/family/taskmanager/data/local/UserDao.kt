@@ -20,6 +20,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE familyId = :familyId")
     fun getUsersByFamily(familyId: String): Flow<List<User>>
 
+    @Query("SELECT * FROM users WHERE familyId = :familyId")
+    suspend fun getUsersByFamilySync(familyId: String): List<User>
+
     @Query("SELECT * FROM users WHERE familyId = :familyId AND role = :role")
     suspend fun getUsersByRoleSync(familyId: String, role: UserRole): List<User>
 

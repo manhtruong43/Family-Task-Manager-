@@ -5,6 +5,9 @@ sealed class Screen(val route: String) {
     object FamilySetup : Screen("family_setup")
     object Home : Screen("home")
     object CreateTask : Screen("create_task")
+    object EditTask : Screen("edit_task/{taskId}") {
+        fun createRoute(taskId: String) = "edit_task/$taskId"
+    }
     object TaskDetail : Screen("task_detail/{taskId}") {
         fun createRoute(taskId: String) = "task_detail/$taskId"
     }
