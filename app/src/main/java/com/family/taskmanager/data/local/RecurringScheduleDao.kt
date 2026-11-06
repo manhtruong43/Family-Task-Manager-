@@ -49,4 +49,7 @@ interface RecurringScheduleDao {
 
     @Query("SELECT id FROM users WHERE familyId = :familyId AND role = :role")
     suspend fun getUserIdsByRole(familyId: String, role: UserRole): List<String>
+
+    @Query("SELECT id FROM users WHERE familyId = :familyId")
+    suspend fun getUserIdsInFamily(familyId: String): List<String>
 }

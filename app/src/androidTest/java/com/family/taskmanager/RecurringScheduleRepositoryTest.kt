@@ -25,6 +25,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -52,6 +53,7 @@ class RecurringScheduleRepositoryTest {
     private val family = "family-1"
     private val parent = User(id = "admin", name = "Mẹ", email = "me@x.com", role = UserRole.ADMIN, familyId = family)
     private val bin = User(id = "bin", name = "Bin", email = "bin@x.com", role = UserRole.MEMBER, familyId = family)
+    private val dad = User(id = "dad", name = "Bố", email = "bo@x.com", role = UserRole.ADMIN, familyId = family)
 
     private fun clockAt(dateTime: LocalDateTime): Clock = Clock.fixed(dateTime.atZone(zone).toInstant(), zone)
 
@@ -66,7 +68,7 @@ class RecurringScheduleRepositoryTest {
         repository.clock = clockAt(today.atTime(10, 0))
 
         db.familyDao().insertFamily(FamilyGroup(id = family, name = "Nhà Bin", inviteCode = "123456", adminId = parent.id))
-        listOf(parent, bin).forEach { db.userDao().insertUser(it) }
+        listOf(parent, bin, dad).forEach { db.userDao().insertUser(it) }
     }
 
     @After
@@ -171,6 +173,7 @@ class RecurringScheduleRepositoryTest {
         )
         assertEquals(1, repository.generateDueTasks())
         assertEquals("", familyTasks().single().assignedToUserId)
+        assertTrue(familyTasks().single().openToAll)              // việc chung: bị từ chối thì trả lại cả nhà
     }
 
     @Test
@@ -219,5 +222,32 @@ class RecurringScheduleRepositoryTest {
 
         // Xóa lịch trình không xóa nhiệm vụ đã sinh
         assertEquals(1, familyTasks().size)
+    }
+
+    // ─── Cùng quy tắc phân quyền với giao việc thường ───
+
+    @Test
+    fun save_cannotAssignToYourself_orOutsider_butCanAssignOtherParent() = runBlocking<Unit> {
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, null, input().copy(assignee = parent)))
+        val outsider = User(id = "out", name = "Khách", email = "o@x.com", role = UserRole.MEMBER, familyId = "family-2")
+        db.userDao().insertUser(outsider)
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, null, input().copy(assignee = outsider)))
+
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input(title = "Nấu cơm").copy(assignee = dad)))
+        val saved = db.recurringScheduleDao().observeByFamily(family).first().single()
+        // Lịch đang giao cho Bố: Bố không tự sửa được, Mẹ thì sửa được
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(dad, saved.id, input(title = "Nấu cơm").copy(assignee = bin)))
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, saved.id, input(title = "Nấu cơm").copy(assignee = bin)))
+    }
+
+    @Test
+    fun everyoneSchedule_notifiesOtherParentAndChildren_butNotTheCreator() = runBlocking<Unit> {
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input().copy(assignee = null)))
+
+        val task = familyTasks().single()
+        assertTrue(task.openToAll)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(dad.id).first().size)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
+        assertEquals(0, db.notificationDao().getNotificationsByUser(parent.id).first().size)
     }
 }

@@ -74,7 +74,6 @@ import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.RepeatType
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.User
-import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.repository.RecurringScheduleInput
 import com.family.taskmanager.ui.theme.GlassCard
 
@@ -462,7 +461,8 @@ private fun RecurringEditorDialog(
 ) {
     val context = LocalContext.current
     val dayLabels = stringArrayResource(R.array.rec_days_short)
-    val assignableMembers = remember(members) { members.filter { it.role == UserRole.MEMBER } }
+    // Danh sách đã được lọc sẵn ở CalendarScreen: cả Con lẫn Bố/Mẹ kia, trừ người đang giao
+    val assignableMembers = members
 
     var title by rememberSaveable { mutableStateOf(initial?.title ?: "") }
     var description by rememberSaveable { mutableStateOf(initial?.description ?: "") }
