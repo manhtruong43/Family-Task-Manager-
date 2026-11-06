@@ -28,7 +28,7 @@ import javax.inject.Singleton
 enum class RecurringResult {
     SAVED, DELETED, PAUSED, RESUMED,
     NOT_ALLOWED, INVALID_TITLE, INVALID_POINTS, NO_DAYS, NOT_FOUND,
-    /** Tự giao lịch trình cho chính mình, hoặc người nhận không thuộc gia đình. */
+    /** Người nhận không hợp lệ, hoặc người được giao tự quản lý lịch trình của mình. */
     INVALID_ASSIGNEE
 }
 
@@ -78,73 +78,96 @@ class RecurringScheduleRepository @Inject constructor(
     // ─────────────────────────── Quản lý lịch trình (Admin) ───────────────────────────
 
     suspend fun saveSchedule(actor: User, editingId: String?, input: RecurringScheduleInput): RecurringResult {
-        if (!canManage(actor)) return RecurringResult.NOT_ALLOWED
+        val result = database.withTransaction {
+            val freshActor = freshManager(actor) ?: return@withTransaction RecurringResult.NOT_ALLOWED
 
-        val title = input.title.trim().take(RecurringSchedule.MAX_TITLE_LENGTH)
-        if (title.isBlank()) return RecurringResult.INVALID_TITLE
-        if (input.points !in 1..RecurringSchedule.MAX_POINTS) return RecurringResult.INVALID_POINTS
-        val mask = input.daysOfWeekMask and RecurringSchedule.ALL_DAYS_MASK
-        if (input.repeatType == RepeatType.WEEKLY && mask == 0) return RecurringResult.NO_DAYS
+            val title = input.title.trim().take(RecurringSchedule.MAX_TITLE_LENGTH)
+            if (title.isBlank()) return@withTransaction RecurringResult.INVALID_TITLE
+            if (input.points !in 1..RecurringSchedule.MAX_POINTS) return@withTransaction RecurringResult.INVALID_POINTS
+            val mask = input.daysOfWeekMask and RecurringSchedule.ALL_DAYS_MASK
+            if (input.repeatType == RepeatType.WEEKLY && mask == 0) return@withTransaction RecurringResult.NO_DAYS
 
-        val existing = editingId?.let { dao.getById(it) }
-        if (editingId != null && (existing == null || existing.familyId != actor.familyId)) {
-            return RecurringResult.NOT_FOUND
+            val existing = editingId?.let { dao.getById(it) }
+            if (editingId != null && (existing == null || existing.familyId != freshActor.familyId)) {
+                return@withTransaction RecurringResult.NOT_FOUND
+            }
+            // Người được giao không tự sửa, bật/tắt hoặc xóa lịch trình của mình.
+            if (existing?.assignedToUserId == freshActor.id) return@withTransaction RecurringResult.INVALID_ASSIGNEE
+
+            // Đọc lại người nhận trong cùng transaction; không dùng tên/gia đình từ form đã cũ.
+            val assignee = input.assignee?.let { selected ->
+                val freshAssignee = database.userDao().getUserByIdSync(selected.id)
+                if (freshAssignee == null || freshAssignee.id == freshActor.id ||
+                    freshAssignee.familyId != freshActor.familyId
+                ) {
+                    return@withTransaction RecurringResult.INVALID_ASSIGNEE
+                }
+                freshAssignee
+            }
+            val draft = RecurringSchedule(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                familyId = freshActor.familyId,
+                title = title,
+                description = input.description.trim().take(RecurringSchedule.MAX_DESCRIPTION_LENGTH),
+                assignedToUserId = assignee?.id.orEmpty(),
+                assignedToUserName = assignee?.name.orEmpty(),
+                priority = input.priority,
+                points = input.points,
+                repeatType = input.repeatType,
+                daysOfWeekMask = if (input.repeatType == RepeatType.WEEKLY) mask else 0,
+                dueMinuteOfDay = input.dueMinuteOfDay.coerceIn(0, 24 * 60 - 1),
+                isActive = existing?.isActive ?: true,
+                createdByUserId = existing?.createdByUserId ?: freshActor.id,
+                createdAt = existing?.createdAt ?: nowMillis(),
+                lastGeneratedEpochDay = existing?.lastGeneratedEpochDay ?: -1L
+            )
+            dao.upsert(skipTodayIfAlreadyPastDue(draft))
+            RecurringResult.SAVED
         }
-
-        // Cùng quy tắc với giao việc thường: người nhận phải cùng nhà và KHÔNG phải chính người giao
-        // (nếu không sẽ tự duyệt việc của mình). Lịch đang giao cho chính mình thì nhờ Bố/Mẹ kia sửa.
-        val assignee = input.assignee
-        if (assignee != null &&
-            (assignee.id == actor.id || dao.countUserInFamily(assignee.id, actor.familyId) == 0)
-        ) {
-            return RecurringResult.INVALID_ASSIGNEE
-        }
-        if (existing != null && existing.assignedToUserId == actor.id) return RecurringResult.INVALID_ASSIGNEE
-
-        val draft = RecurringSchedule(
-            id = existing?.id ?: UUID.randomUUID().toString(),
-            familyId = actor.familyId,
-            title = title,
-            description = input.description.trim().take(RecurringSchedule.MAX_DESCRIPTION_LENGTH),
-            assignedToUserId = input.assignee?.id ?: "",
-            assignedToUserName = input.assignee?.name ?: "",
-            priority = input.priority,
-            points = input.points,
-            repeatType = input.repeatType,
-            daysOfWeekMask = if (input.repeatType == RepeatType.WEEKLY) mask else 0,
-            dueMinuteOfDay = input.dueMinuteOfDay.coerceIn(0, 24 * 60 - 1),
-            isActive = existing?.isActive ?: true,
-            createdByUserId = existing?.createdByUserId ?: actor.id,
-            createdAt = existing?.createdAt ?: nowMillis(),
-            lastGeneratedEpochDay = existing?.lastGeneratedEpochDay ?: -1L
-        )
-        dao.upsert(skipTodayIfAlreadyPastDue(draft))
-        generateDueTasks()
-        return RecurringResult.SAVED
+        // Sinh nhiệm vụ và gửi thông báo sau khi transaction lưu lịch đã hoàn tất.
+        if (result == RecurringResult.SAVED) generateDueTasks()
+        return result
     }
 
     suspend fun setActive(actor: User, scheduleId: String, active: Boolean): RecurringResult {
-        if (!canManage(actor)) return RecurringResult.NOT_ALLOWED
-        val schedule = dao.getById(scheduleId)
-        if (schedule == null || schedule.familyId != actor.familyId) return RecurringResult.NOT_FOUND
+        val result = database.withTransaction {
+            val freshActor = freshManager(actor) ?: return@withTransaction RecurringResult.NOT_ALLOWED
+            val schedule = dao.getById(scheduleId)
+            if (schedule == null || schedule.familyId != freshActor.familyId) {
+                return@withTransaction RecurringResult.NOT_FOUND
+            }
+            if (schedule.assignedToUserId == freshActor.id) return@withTransaction RecurringResult.INVALID_ASSIGNEE
 
-        val updated = schedule.copy(isActive = active)
-        dao.upsert(if (active) skipTodayIfAlreadyPastDue(updated) else updated)
-        if (active) generateDueTasks()
-        return if (active) RecurringResult.RESUMED else RecurringResult.PAUSED
+            val updated = schedule.copy(isActive = active)
+            dao.upsert(if (active) skipTodayIfAlreadyPastDue(updated) else updated)
+            if (active) RecurringResult.RESUMED else RecurringResult.PAUSED
+        }
+        if (result == RecurringResult.RESUMED) generateDueTasks()
+        return result
     }
 
     /** Xóa lịch trình. Các nhiệm vụ đã sinh trước đó vẫn được giữ lại. */
-    suspend fun deleteSchedule(actor: User, scheduleId: String): RecurringResult {
-        if (!canManage(actor)) return RecurringResult.NOT_ALLOWED
-        val schedule = dao.getById(scheduleId)
-        if (schedule == null || schedule.familyId != actor.familyId) return RecurringResult.NOT_FOUND
-        dao.deleteById(scheduleId)
-        return RecurringResult.DELETED
-    }
+    suspend fun deleteSchedule(actor: User, scheduleId: String): RecurringResult =
+        database.withTransaction {
+            val freshActor = freshManager(actor) ?: return@withTransaction RecurringResult.NOT_ALLOWED
+            val schedule = dao.getById(scheduleId)
+            if (schedule == null || schedule.familyId != freshActor.familyId) {
+                return@withTransaction RecurringResult.NOT_FOUND
+            }
+            if (schedule.assignedToUserId == freshActor.id) return@withTransaction RecurringResult.INVALID_ASSIGNEE
 
-    private fun canManage(actor: User): Boolean =
-        actor.role == UserRole.ADMIN && actor.familyId.isNotBlank()
+            dao.deleteById(scheduleId)
+            RecurringResult.DELETED
+        }
+
+    /** Chỉ gọi trong transaction quản lý lịch; phiên trên UI có thể đã cũ. */
+    private suspend fun freshManager(actor: User): User? {
+        val freshActor = database.userDao().getUserByIdSync(actor.id) ?: return null
+        return freshActor.takeIf {
+            it.role == UserRole.ADMIN && it.familyId.isNotBlank() &&
+                it.familyId == actor.familyId && dao.countFamily(it.familyId) > 0
+        }
+    }
 
     /**
      * Tạo mới / sửa / bật lại lịch trình SAU giờ hạn của hôm nay -> không sinh việc hôm nay
