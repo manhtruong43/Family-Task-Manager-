@@ -258,6 +258,7 @@ class FamilyRepositoryTest {
             assertEquals("", released.assignedToUserId)
             assertEquals(TaskStatus.TODO, released.status)
             assertEquals("", released.proofImageUrl)
+            assertTrue(released.openToAll)                          // thành việc chung của cả nhà
         }
         val done = db.taskDao().getTaskById("done")!!
         assertEquals(bin.id, done.assignedToUserId)                 // lịch sử giữ nguyên
