@@ -81,8 +81,10 @@ fun CreateEditTaskScreen(
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var pointsText by rememberSaveable { mutableStateOf("10") }
-    // Đang lưu -> khóa nút để không tạo trùng; chỉ quay về khi tạo THÀNH CÔNG
+    // Đang lưu -> khóa nút để không tạo trùng (isSavingTask trên ViewModel giữ khóa cả khi xoay màn hình)
+    val isSavingTask by viewModel.isSavingTask.collectAsState()
     var isSaving by remember { mutableStateOf(false) }
+    val busy = isSaving || isSavingTask
     val points = pointsText.toIntOrNull()
     val pointsValid = points != null && points in 0..TaskRepository.MAX_TASK_POINTS
     var selectedPriority by rememberSaveable { mutableStateOf(TaskPriority.MEDIUM) }
@@ -136,17 +138,12 @@ fun CreateEditTaskScreen(
     val selectedAssignee: User? = assignableMembers.find { it.id == selectedAssigneeId }
     var expandedAssignee by remember { mutableStateOf(false) }
 
-    // Cách giao (chỉ khi tạo mới). Khi sửa: chọn 1 người hoặc "Tất cả" trong ô chọn như cũ.
-    var assignMode by rememberSaveable { mutableStateOf(AssignMode.ONE) }
-    // "Mỗi người đều làm": lưu id các người được tích (String để rememberSaveable được)
+    // Khi tạo mới: tích chọn thành viên (1 người = giao đích danh; >= 2 người = chọn Ai làm cũng được / Mỗi người đều làm)
+    // Khi sửa: chọn 1 người hoặc "Tất cả" trong ô chọn.
+    var assignMode by rememberSaveable { mutableStateOf(AssignMode.ANYONE) }
     var eachSelectedIds by rememberSaveable { mutableStateOf(listOf<String>()) }
     val eachSelected = assignableMembers.filter { it.id in eachSelectedIds }
-    val assigneeValid = when {
-        isEditing -> true
-        assignMode == AssignMode.ONE -> selectedAssignee != null
-        assignMode == AssignMode.EACH -> eachSelected.isNotEmpty()
-        else -> true
-    }
+    val assigneeValid = if (isEditing) true else eachSelected.isNotEmpty()
 
     // Chế độ sửa: điền sẵn dữ liệu cũ đúng 1 lần (xoay màn hình không bị ghi đè lại)
     var prefilled by rememberSaveable { mutableStateOf(false) }
@@ -217,37 +214,20 @@ fun CreateEditTaskScreen(
             Text(stringResource(R.string.task_assign_to), fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (!isEditing) {
-                // 3 cách giao: Một người / Cả nhà - ai làm cũng được / Mỗi người đều làm
-                AssignModeOption(
-                    selected = assignMode == AssignMode.ONE,
-                    text = stringResource(R.string.tk_mode_one),
-                    onClick = { assignMode = AssignMode.ONE }
-                )
-                AssignModeOption(
-                    selected = assignMode == AssignMode.ANYONE,
-                    text = stringResource(R.string.tk_mode_anyone),
-                    hint = stringResource(R.string.tk_mode_anyone_hint),
-                    onClick = { assignMode = AssignMode.ANYONE }
-                )
-                AssignModeOption(
-                    selected = assignMode == AssignMode.EACH,
-                    text = stringResource(R.string.tk_mode_each),
-                    hint = stringResource(R.string.tk_mode_each_hint),
-                    onClick = { assignMode = AssignMode.EACH }
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (isEditing || assignMode == AssignMode.ONE) {
+            if (isEditing) {
+                val fallbackAssigneeName = editingTask
+                    ?.takeIf { it.assignedToUserId == selectedAssigneeId }
+                    ?.assignedToUserName
+                    ?.takeIf { it.isNotBlank() }
+                val assigneeDisplayText = selectedAssignee?.name
+                    ?: fallbackAssigneeName
+                    ?: stringResource(R.string.task_assign_all)
                 ExposedDropdownMenuBox(
                     expanded = expandedAssignee,
                     onExpandedChange = { expandedAssignee = !expandedAssignee }
                 ) {
                     OutlinedTextField(
-                        value = selectedAssignee?.name ?: stringResource(
-                            if (isEditing) R.string.task_assign_all else R.string.tk_pick_assignee
-                        ),
+                        value = assigneeDisplayText,
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAssignee) },
@@ -259,16 +239,13 @@ fun CreateEditTaskScreen(
                         expanded = expandedAssignee,
                         onDismissRequest = { expandedAssignee = false }
                     ) {
-                        // Khi sửa vẫn cho chuyển về "Cả nhà - ai làm cũng được"
-                        if (isEditing) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.task_assign_all)) },
-                                onClick = {
-                                    selectedAssigneeId = null
-                                    expandedAssignee = false
-                                }
-                            )
-                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.task_assign_all)) },
+                            onClick = {
+                                selectedAssigneeId = null
+                                expandedAssignee = false
+                            }
+                        )
                         assignableMembers.forEach { user ->
                             DropdownMenuItem(
                                 text = { Text("${user.name} (${roleLabel(user)})") },
@@ -280,10 +257,8 @@ fun CreateEditTaskScreen(
                         }
                     }
                 }
-            }
-
-            if (!isEditing && assignMode == AssignMode.EACH) {
-                // Danh sách tích chọn + "Chọn tất cả"
+            } else {
+                // Danh sách tích chọn tất cả thành viên (trừ chính người giao) + nút "Chọn tất cả"
                 val allSelected = assignableMembers.isNotEmpty() && eachSelected.size == assignableMembers.size
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -319,6 +294,23 @@ fun CreateEditTaskScreen(
                         )
                         Text("${user.name} (${roleLabel(user)})")
                     }
+                }
+
+                // Tích từ 2 người trở lên -> hiện chọn thêm cách làm: Ai làm cũng được / Mỗi người đều làm
+                if (eachSelected.size >= 2) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AssignModeOption(
+                        selected = assignMode == AssignMode.ANYONE,
+                        text = stringResource(R.string.tk_mode_anyone),
+                        hint = stringResource(R.string.tk_mode_anyone_hint),
+                        onClick = { assignMode = AssignMode.ANYONE }
+                    )
+                    AssignModeOption(
+                        selected = assignMode == AssignMode.EACH,
+                        text = stringResource(R.string.tk_mode_each),
+                        hint = stringResource(R.string.tk_mode_each_hint),
+                        onClick = { assignMode = AssignMode.EACH }
+                    )
                 }
             }
 
@@ -439,9 +431,22 @@ fun CreateEditTaskScreen(
                             priority = selectedPriority,
                             points = points ?: 0,
                             deadlineTimestamp = selectedDeadlineTimestamp,
+                            assigneeId = selectedAssigneeId,
+                            onResult = handleResult
+                        )
+                    } else if (eachSelected.size == 1) {
+                        // Tích 1 người: giao đích danh cho người đó
+                        viewModel.createTask(
+                            title = title,
+                            description = description,
+                            assignedToUser = eachSelected.single(),
+                            priority = selectedPriority,
+                            points = points ?: 0,
+                            deadlineTimestamp = selectedDeadlineTimestamp,
                             onResult = handleResult
                         )
                     } else if (assignMode == AssignMode.EACH) {
+                        // Tích >= 2 người + Mỗi người đều làm
                         viewModel.createTaskForEach(
                             title = title,
                             description = description,
@@ -452,11 +457,11 @@ fun CreateEditTaskScreen(
                             onResult = handleResult
                         )
                     } else {
+                        // Tích >= 2 người + Ai làm cũng được
                         viewModel.createTask(
                             title = title,
                             description = description,
-                            // ANYONE = việc chung (không giao đích danh)
-                            assignedToUser = if (assignMode == AssignMode.ONE) selectedAssignee else null,
+                            assignedToUser = null,
                             priority = selectedPriority,
                             points = points ?: 0,
                             deadlineTimestamp = selectedDeadlineTimestamp,
@@ -465,8 +470,8 @@ fun CreateEditTaskScreen(
                     }
                 },
                 // Đang sửa mà việc đã bị xóa / chưa tải xong -> khóa nút
-                enabled = title.isNotBlank() && pointsValid && assigneeValid && !isSaving &&
-                        (!isEditing || editingTask != null),
+                enabled = title.isNotBlank() && pointsValid && assigneeValid && !busy &&
+                        (!isEditing || (editingTask != null && prefilled)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
@@ -474,7 +479,7 @@ fun CreateEditTaskScreen(
                 Text(
                     stringResource(
                         when {
-                            isSaving -> R.string.tk_form_saving
+                            busy -> R.string.tk_form_saving
                             isEditing -> R.string.tk_btn_save_changes
                             else -> R.string.btn_create_and_assign
                         }

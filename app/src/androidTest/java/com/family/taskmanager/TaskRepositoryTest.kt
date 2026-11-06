@@ -333,4 +333,52 @@ class TaskRepositoryTest {
         assertEquals(TaskActionResult.SUCCESS, repository.approveTask(seenByDad, parent))
         assertEquals(5, points(dad.id))
     }
+
+    @Test
+    fun toggleReaction_ignoresDeletedOrOtherFamilyTask() = runBlocking<Unit> {
+        repository.toggleReaction("khong-ton-tai", bin, "👍")
+        assertNull(db.taskReactionDao().getUserReaction("khong-ton-tai", bin.id, "👍"))
+
+        repository.toggleReaction(taskForBin.id, otherParent, "👍")
+        assertNull(db.taskReactionDao().getUserReaction(taskForBin.id, otherParent.id, "👍"))
+    }
+
+    @Test
+    fun createTask_enforcesCreatorIdAndAssigneeNameFromDb() = runBlocking<Unit> {
+        val spoofed = Task(
+            id = "t-spoof",
+            title = "Quét sân",
+            familyId = family,
+            assignedToUserId = bin.id,
+            assignedToUserName = "Tên giả",
+            createdByUserId = bin.id, // truyền sai người tạo
+            points = 10
+        )
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(spoofed, parent))
+        val saved = db.taskDao().getTaskById("t-spoof")!!
+        assertEquals(parent.id, saved.createdByUserId)
+        assertEquals(bin.name, saved.assignedToUserName)
+    }
+
+    @Test
+    fun review_refusesStaleScreenWhenNewProofSubmitted() = runBlocking<Unit> {
+        val wipe = Task(id = "t-stale", title = "Lau kính", familyId = family, createdByUserId = parent.id, points = 10)
+        repository.createTask(wipe, parent)
+        repository.submitTaskProof(wipe.id, "file:///data/na_photo.jpg", "", na)
+        val staleScreen = db.taskDao().getTaskById(wipe.id)!!
+
+        // Mẹ từ chối bài của Na, sau đó Bin nộp bộ ảnh mới khác
+        repository.rejectTask(staleScreen, parent)
+        repository.submitTaskProof(wipe.id, "file:///data/bin_new_photo.jpg", "", bin)
+
+        // Bố vẫn đang nhìn màn hình cũ của Na (staleScreen) -> chặn duyệt nhầm ảnh chưa xem
+        assertEquals(TaskActionResult.INVALID_STATE, repository.approveTask(staleScreen, dad))
+        assertEquals(TaskStatus.PENDING_APPROVAL, status(wipe.id))
+        assertEquals(0, points(bin.id))
+
+        // Khi tải lại màn hình mới nhất của Bin -> Bố duyệt thành công
+        val freshScreen = db.taskDao().getTaskById(wipe.id)!!
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(freshScreen, dad))
+        assertEquals(10, points(bin.id))
+    }
 }
