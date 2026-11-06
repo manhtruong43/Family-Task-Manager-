@@ -536,7 +536,7 @@ private fun RecurringEditorDialog(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         FilterChip(
-                            selected = assigneeId.isBlank(),
+                            selected = assigneeId.isEmpty(),
                             onClick = { assigneeId = "" },
                             label = { Text(stringResource(R.string.rec_everyone)) },
                             colors = recChipColors()
@@ -631,7 +631,7 @@ private fun RecurringEditorDialog(
                         RecurringScheduleInput(
                             title = title,
                             description = description,
-                            assignee = assignableMembers.firstOrNull { it.id == assigneeId },
+                            assigneeId = assigneeId,
                             priority = priority,
                             points = points ?: 0,
                             repeatType = repeatType,
