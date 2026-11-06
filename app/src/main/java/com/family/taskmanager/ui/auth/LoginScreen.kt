@@ -61,6 +61,13 @@ enum class AuthTab {
     REGISTER
 }
 
+/** Phân biệt rõ Bố / Mẹ / Con khi đăng ký (Bố và Mẹ đều có quyền ADMIN). */
+enum class RegisterIdentity(val role: UserRole, val defaultAvatar: String) {
+    FATHER(UserRole.ADMIN, "🧔"),
+    MOTHER(UserRole.ADMIN, "👩"),
+    CHILD(UserRole.MEMBER, "👦")
+}
+
 private val AccentBlue = Color(0xFF38BDF8)
 private val PrimaryBlue = Color(0xFF0284C7)
 
@@ -79,8 +86,8 @@ fun LoginScreen(
     // Dữ liệu form đăng ký
     var regName by rememberSaveable { mutableStateOf("") }
     var regEmail by rememberSaveable { mutableStateOf("") }
-    var selectedRole by rememberSaveable { mutableStateOf(UserRole.ADMIN) }
-    var selectedAvatar by rememberSaveable { mutableStateOf(User.AVATAR_PRESETS[0].first) }
+    var selectedIdentity by rememberSaveable { mutableStateOf(RegisterIdentity.FATHER) }
+    var selectedAvatar by rememberSaveable { mutableStateOf(RegisterIdentity.FATHER.defaultAvatar) }
 
     // Dữ liệu nhập mã OTP
     var otpInput by rememberSaveable { mutableStateOf("") }
@@ -197,7 +204,7 @@ fun LoginScreen(
                             RegisterForm(
                                 name = regName,
                                 email = regEmail,
-                                selectedRole = selectedRole,
+                                selectedIdentity = selectedIdentity,
                                 selectedAvatar = selectedAvatar,
                                 authState = authState,
                                 onNameChange = {
@@ -208,9 +215,19 @@ fun LoginScreen(
                                     regEmail = it
                                     viewModel.clearError()
                                 },
-                                onRoleChange = { selectedRole = it },
+                                onIdentityChange = { identity ->
+                                    selectedIdentity = identity
+                                    selectedAvatar = identity.defaultAvatar
+                                },
                                 onAvatarChange = { selectedAvatar = it },
-                                onSubmit = { viewModel.register(regName, regEmail, selectedRole, selectedAvatar) },
+                                onSubmit = {
+                                    viewModel.register(
+                                        name = regName,
+                                        email = regEmail,
+                                        role = selectedIdentity.role,
+                                        avatarUrl = selectedAvatar
+                                    )
+                                },
                                 onSwitchToLogin = {
                                     currentTab = AuthTab.LOGIN
                                     viewModel.clearError()
@@ -294,12 +311,12 @@ private fun LoginForm(
 private fun RegisterForm(
     name: String,
     email: String,
-    selectedRole: UserRole,
+    selectedIdentity: RegisterIdentity,
     selectedAvatar: String,
     authState: AuthState,
     onNameChange: (String) -> Unit,
     onEmailChange: (String) -> Unit,
-    onRoleChange: (UserRole) -> Unit,
+    onIdentityChange: (RegisterIdentity) -> Unit,
     onAvatarChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onSwitchToLogin: () -> Unit
@@ -370,16 +387,22 @@ private fun RegisterForm(
 
     SectionLabel(stringResource(R.string.auth_step_role))
     RoleOption(
-        selected = selectedRole == UserRole.ADMIN,
-        title = stringResource(R.string.auth_role_admin),
-        description = stringResource(R.string.auth_role_admin_desc),
-        onClick = { onRoleChange(UserRole.ADMIN) }
+        selected = selectedIdentity == RegisterIdentity.FATHER,
+        title = stringResource(R.string.auth_role_father),
+        description = stringResource(R.string.auth_role_father_desc),
+        onClick = { onIdentityChange(RegisterIdentity.FATHER) }
     )
     RoleOption(
-        selected = selectedRole == UserRole.MEMBER,
-        title = stringResource(R.string.auth_role_member),
-        description = stringResource(R.string.auth_role_member_desc),
-        onClick = { onRoleChange(UserRole.MEMBER) }
+        selected = selectedIdentity == RegisterIdentity.MOTHER,
+        title = stringResource(R.string.auth_role_mother),
+        description = stringResource(R.string.auth_role_mother_desc),
+        onClick = { onIdentityChange(RegisterIdentity.MOTHER) }
+    )
+    RoleOption(
+        selected = selectedIdentity == RegisterIdentity.CHILD,
+        title = stringResource(R.string.auth_role_child_option),
+        description = stringResource(R.string.auth_role_child_option_desc),
+        onClick = { onIdentityChange(RegisterIdentity.CHILD) }
     )
 
     Spacer(modifier = Modifier.height(18.dp))

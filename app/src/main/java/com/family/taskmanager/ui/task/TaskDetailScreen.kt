@@ -31,8 +31,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -85,7 +88,8 @@ import com.family.taskmanager.ui.theme.GlassGradientBackground
 fun TaskDetailScreen(
     taskId: String,
     viewModel: HomeViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onEditClick: (String) -> Unit = {}
 ) {
     val tasks by viewModel.familyTasks.collectAsState()
     val task = tasks.find { it.id == taskId }
@@ -101,6 +105,7 @@ fun TaskDetailScreen(
         }
     }
 
+    var showCancelDialog by remember { mutableStateOf(false) }
     var proofNote by rememberSaveable { mutableStateOf("") }
     val selectedImageUris = remember { mutableStateListOf<Uri>() }
 
@@ -155,6 +160,34 @@ fun TaskDetailScreen(
                 // Phân quyền: chỉ người được giao mới làm / nộp minh chứng; chỉ Bố/Mẹ cùng nhà mới duyệt
                 val canWork = TaskPermissions.canWork(currentUser, task)
                 val canReview = TaskPermissions.canReview(currentUser, task)
+                val canEdit = TaskPermissions.canEdit(currentUser, task)
+                val canCancel = TaskPermissions.canCancel(currentUser, task)
+
+                // Hộp thoại xác nhận hủy việc (hủy rồi không khôi phục được)
+                if (showCancelDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showCancelDialog = false },
+                        title = { Text(stringResource(R.string.tk_cancel_confirm_title)) },
+                        text = { Text(stringResource(R.string.tk_cancel_confirm_message, task.title)) },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showCancelDialog = false
+                                    viewModel.cancelTask(task.id) { result ->
+                                        if (result == TaskActionResult.SUCCESS) onBack() else showResult(result)
+                                    }
+                                }
+                            ) {
+                                Text(stringResource(R.string.tk_btn_confirm_cancel), color = Color(0xFFF87171))
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showCancelDialog = false }) {
+                                Text(stringResource(R.string.tk_btn_keep_task))
+                            }
+                        }
+                    )
+                }
                 val isOpenTask = task.status == TaskStatus.TODO ||
                         task.status == TaskStatus.IN_PROGRESS ||
                         task.status == TaskStatus.REJECTED
@@ -319,6 +352,40 @@ fun TaskDetailScreen(
                         }
 
                         Spacer(modifier = Modifier.height(20.dp))
+                    }
+
+                    // Bố/Mẹ sửa / hủy việc giao nhầm (không áp dụng cho việc đang giao cho chính mình)
+                    if (canEdit || canCancel) {
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            if (canEdit) {
+                                OutlinedButton(
+                                    onClick = { onEditClick(task.id) },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(46.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(stringResource(R.string.tk_btn_edit))
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                            }
+                            if (canCancel) {
+                                OutlinedButton(
+                                    onClick = { showCancelDialog = true },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF87171)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(46.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(stringResource(R.string.tk_btn_cancel_task))
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
 
                     // Việc của người khác: chỉ xem, giải thích vì sao không có nút thao tác

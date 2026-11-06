@@ -119,8 +119,9 @@ fun HomeScreen(
         val matchesTab = when (selectedTab) {
             // "Của tôi": việc giao đích danh cho tôi + việc chung của cả nhà (nếu tôi là Con)
             1 -> TaskPermissions.isMine(currentUser, task)
+            // "Cần duyệt" (Bố/Mẹ): chỉ việc mình duyệt được - việc của chính mình nằm ở "Của tôi"
             2 -> task.status == TaskStatus.PENDING_APPROVAL &&
-                    (isAdmin || TaskPermissions.isMine(currentUser, task))
+                    (if (isAdmin) TaskPermissions.canReview(currentUser, task) else TaskPermissions.isMine(currentUser, task))
             3 -> task.status == TaskStatus.COMPLETED
             else -> true
         }
@@ -508,7 +509,14 @@ fun GlassFamilyMembersSection(
                                 maxLines = 1
                             )
                             Text(
-                                text = stringResource(if (member.role == UserRole.ADMIN) R.string.home_role_parent else R.string.home_role_child),
+                                text = stringResource(
+                                    when {
+                                        member.role != UserRole.ADMIN -> R.string.home_role_child
+                                        member.avatarUrl == "🧔" -> R.string.role_father_short
+                                        member.avatarUrl == "👩" -> R.string.role_mother_short
+                                        else -> R.string.home_role_parent
+                                    }
+                                ),
                                 fontSize = 10.sp,
                                 color = if (member.role == UserRole.ADMIN) AccentBlue else AccentGreen
                             )
@@ -691,11 +699,17 @@ fun GlassHeaderSection(
                             fontSize = 18.sp,
                             color = Color.White
                         )
+                        val greetingRoleLabel = when {
+                            role == UserRole.MEMBER -> stringResource(R.string.home_role_child)
+                            userAvatar == "🧔" -> stringResource(R.string.role_father_short)
+                            userAvatar == "👩" -> stringResource(R.string.role_mother_short)
+                            else -> stringResource(R.string.home_role_parent)
+                        }
                         Text(
                             text = stringResource(
                                 R.string.home_greeting,
                                 userName,
-                                stringResource(if (role == UserRole.ADMIN) R.string.home_role_parent else R.string.home_role_child)
+                                greetingRoleLabel
                             ),
                             fontSize = 12.sp,
                             color = Color.White.copy(alpha = 0.8f)

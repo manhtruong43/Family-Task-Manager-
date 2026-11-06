@@ -20,4 +20,7 @@ interface TaskReactionDao {
 
     @Query("DELETE FROM task_reactions WHERE taskId = :taskId AND userId = :userId AND emoji = :emoji")
     suspend fun deleteReaction(taskId: String, userId: String, emoji: String)
+
+    @Query("DELETE FROM task_reactions WHERE taskId = :taskId")
+    suspend fun deleteReactionsOfTask(taskId: String)
 }

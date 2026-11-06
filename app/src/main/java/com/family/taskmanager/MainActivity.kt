@@ -133,6 +133,17 @@ fun FamilyTaskManagerApp() {
         }
 
         composable(
+            route = Screen.EditTask.route,
+            arguments = listOf(navArgument("taskId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            CreateEditTaskScreen(
+                viewModel = homeViewModel,
+                taskId = backStackEntry.arguments?.getString("taskId"),
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
             route = Screen.TaskDetail.route,
             arguments = listOf(navArgument("taskId") { type = NavType.StringType })
         ) { backStackEntry ->
@@ -141,7 +152,8 @@ fun FamilyTaskManagerApp() {
             TaskDetailScreen(
                 taskId = taskId,
                 viewModel = homeViewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onEditClick = { id -> navController.navigate(Screen.EditTask.createRoute(id)) }
             )
         }
 
