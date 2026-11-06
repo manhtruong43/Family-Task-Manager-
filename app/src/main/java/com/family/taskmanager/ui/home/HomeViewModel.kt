@@ -80,6 +80,10 @@ class HomeViewModel @Inject constructor(
     private val _isSubmittingProof = MutableStateFlow(false)
     val isSubmittingProof: StateFlow<Boolean> = _isSubmittingProof.asStateFlow()
 
+    /** Đang lưu nhiệm vụ (tạo mới / tạo hàng loạt / sửa) -> giữ khóa nút Lưu kể cả khi xoay màn hình. */
+    private val _isSavingTask = MutableStateFlow(false)
+    val isSavingTask: StateFlow<Boolean> = _isSavingTask.asStateFlow()
+
     fun getTaskReactions(taskId: String): StateFlow<List<TaskReaction>> =
         taskRepository.getReactionsByTask(taskId)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -99,13 +103,7 @@ class HomeViewModel @Inject constructor(
         points: Int,
         deadlineTimestamp: Long,
         onResult: (TaskActionResult) -> Unit = {}
-    ) {
-        val user = currentUser.value
-        if (user == null) {
-            onResult(TaskActionResult.NOT_ALLOWED)
-            return
-        }
-
+    ) = runSaveAction(onResult) { user ->
         val newTask = Task(
             id = UUID.randomUUID().toString(),
             title = title.trim(),
@@ -120,9 +118,7 @@ class HomeViewModel @Inject constructor(
             points = points,
             deadlineTimestamp = deadlineTimestamp
         )
-        viewModelScope.launch {
-            onResult(taskRepository.createTask(newTask, user))
-        }
+        taskRepository.createTask(newTask, user)
     }
 
     /**
@@ -187,7 +183,7 @@ class HomeViewModel @Inject constructor(
         points: Int,
         deadlineTimestamp: Long,
         onResult: (TaskActionResult) -> Unit = {}
-    ) = runAction(onResult) { user ->
+    ) = runSaveAction(onResult) { user ->
         val template = Task(
             id = UUID.randomUUID().toString(),
             title = title.trim(),
@@ -202,22 +198,23 @@ class HomeViewModel @Inject constructor(
         taskRepository.createTaskForEach(template, assignees.map { it.id }, user)
     }
 
-    /** Bố/Mẹ sửa việc giao nhầm (chỉ khi chưa ai nộp minh chứng). [assignedToUser] null = cả nhà. */
+    /** Bố/Mẹ sửa việc giao nhầm (chỉ khi chưa ai nộp minh chứng). [assigneeId] rỗng / null = cả nhà. */
     fun updateTask(
         taskId: String,
         title: String,
         description: String,
-        assignedToUser: User?,
+        assignedToUser: User? = null,
         priority: TaskPriority,
         points: Int,
         deadlineTimestamp: Long,
+        assigneeId: String? = assignedToUser?.id,
         onResult: (TaskActionResult) -> Unit = {}
-    ) = runAction(onResult) { user ->
+    ) = runSaveAction(onResult) { user ->
         taskRepository.updateTask(
             taskId = taskId,
             title = title,
             description = description,
-            assigneeId = assignedToUser?.id,
+            assigneeId = assigneeId,
             priority = priority,
             points = points,
             deadlineTimestamp = deadlineTimestamp,
@@ -225,14 +222,29 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    /** Bố/Mẹ hủy việc chưa hoàn thành; hủy xong thì dọn luôn ảnh minh chứng của việc đó. */
+    /** Bố/Mẹ hủy việc chưa hoàn thành (ảnh minh chứng được xóa ngay trong TaskRepository.cancelTask). */
     fun cancelTask(taskId: String, onResult: (TaskActionResult) -> Unit = {}) =
-        runAction(onResult) { user ->
-            val proofPaths = taskRepository.getTaskById(taskId)?.getProofImageList().orEmpty()
-            val result = taskRepository.cancelTask(taskId, user)
-            if (result == TaskActionResult.SUCCESS) proofImageStorage.delete(proofPaths)
-            result
+        runAction(onResult) { user -> taskRepository.cancelTask(taskId, user) }
+
+    private fun runSaveAction(
+        onResult: (TaskActionResult) -> Unit,
+        action: suspend (User) -> TaskActionResult
+    ) {
+        val user = currentUser.value
+        if (user == null) {
+            onResult(TaskActionResult.NOT_ALLOWED)
+            return
         }
+        if (_isSavingTask.value) return
+        viewModelScope.launch {
+            _isSavingTask.value = true
+            try {
+                onResult(action(user))
+            } finally {
+                _isSavingTask.value = false
+            }
+        }
+    }
 
     private fun runAction(
         onResult: (TaskActionResult) -> Unit,

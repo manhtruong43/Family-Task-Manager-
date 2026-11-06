@@ -81,8 +81,10 @@ fun CreateEditTaskScreen(
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var pointsText by rememberSaveable { mutableStateOf("10") }
-    // Đang lưu -> khóa nút để không tạo trùng; chỉ quay về khi tạo THÀNH CÔNG
+    // Đang lưu -> khóa nút để không tạo trùng (isSavingTask trên ViewModel giữ khóa cả khi xoay màn hình)
+    val isSavingTask by viewModel.isSavingTask.collectAsState()
     var isSaving by remember { mutableStateOf(false) }
+    val busy = isSaving || isSavingTask
     val points = pointsText.toIntOrNull()
     val pointsValid = points != null && points in 0..TaskRepository.MAX_TASK_POINTS
     var selectedPriority by rememberSaveable { mutableStateOf(TaskPriority.MEDIUM) }
@@ -213,12 +215,19 @@ fun CreateEditTaskScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             if (isEditing) {
+                val fallbackAssigneeName = editingTask
+                    ?.takeIf { it.assignedToUserId == selectedAssigneeId }
+                    ?.assignedToUserName
+                    ?.takeIf { it.isNotBlank() }
+                val assigneeDisplayText = selectedAssignee?.name
+                    ?: fallbackAssigneeName
+                    ?: stringResource(R.string.task_assign_all)
                 ExposedDropdownMenuBox(
                     expanded = expandedAssignee,
                     onExpandedChange = { expandedAssignee = !expandedAssignee }
                 ) {
                     OutlinedTextField(
-                        value = selectedAssignee?.name ?: stringResource(R.string.task_assign_all),
+                        value = assigneeDisplayText,
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAssignee) },
@@ -422,6 +431,7 @@ fun CreateEditTaskScreen(
                             priority = selectedPriority,
                             points = points ?: 0,
                             deadlineTimestamp = selectedDeadlineTimestamp,
+                            assigneeId = selectedAssigneeId,
                             onResult = handleResult
                         )
                     } else if (eachSelected.size == 1) {
@@ -460,8 +470,8 @@ fun CreateEditTaskScreen(
                     }
                 },
                 // Đang sửa mà việc đã bị xóa / chưa tải xong -> khóa nút
-                enabled = title.isNotBlank() && pointsValid && assigneeValid && !isSaving &&
-                        (!isEditing || editingTask != null),
+                enabled = title.isNotBlank() && pointsValid && assigneeValid && !busy &&
+                        (!isEditing || (editingTask != null && prefilled)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
@@ -469,7 +479,7 @@ fun CreateEditTaskScreen(
                 Text(
                     stringResource(
                         when {
-                            isSaving -> R.string.tk_form_saving
+                            busy -> R.string.tk_form_saving
                             isEditing -> R.string.tk_btn_save_changes
                             else -> R.string.btn_create_and_assign
                         }
