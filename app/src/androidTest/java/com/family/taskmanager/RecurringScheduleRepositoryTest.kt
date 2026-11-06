@@ -250,4 +250,84 @@ class RecurringScheduleRepositoryTest {
         assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
         assertEquals(0, db.notificationDao().getNotificationsByUser(parent.id).first().size)
     }
+
+    @Test
+    fun cachedParent_cannotManageAfterLeavingFamily() = runBlocking<Unit> {
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input()))
+        val saved = onlySchedule()
+        db.userDao().updateUser(parent.copy(familyId = ""))
+
+        assertEquals(RecurringResult.NOT_ALLOWED, repository.saveSchedule(parent, null, input(title = "Việc mới")))
+        assertEquals(RecurringResult.NOT_ALLOWED, repository.saveSchedule(parent, saved.id, input(title = "Đã sửa")))
+        assertEquals(RecurringResult.NOT_ALLOWED, repository.setActive(parent, saved.id, false))
+        assertEquals(RecurringResult.NOT_ALLOWED, repository.deleteSchedule(parent, saved.id))
+        assertEquals(saved, onlySchedule())
+        assertEquals(1, familyTasks().size)
+    }
+
+    @Test
+    fun cachedParent_cannotManageAfterRoleOrFamilyChanges() = runBlocking<Unit> {
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input()))
+        val saved = onlySchedule()
+
+        listOf(
+            parent.copy(role = UserRole.MEMBER),
+            parent.copy(familyId = "family-2")
+        ).forEach { changed ->
+            db.userDao().updateUser(changed)
+            assertEquals(RecurringResult.NOT_ALLOWED, repository.saveSchedule(parent, null, input()))
+            assertEquals(RecurringResult.NOT_ALLOWED, repository.saveSchedule(parent, saved.id, input()))
+            assertEquals(RecurringResult.NOT_ALLOWED, repository.setActive(parent, saved.id, false))
+            assertEquals(RecurringResult.NOT_ALLOWED, repository.deleteSchedule(parent, saved.id))
+            assertEquals(saved, onlySchedule())
+        }
+    }
+
+    @Test
+    fun assignedParent_cannotEditPauseResumeOrDelete_butOtherParentCan() = runBlocking<Unit> {
+        val forDad = input().copy(assignee = dad)
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, forDad))
+        val saved = onlySchedule()
+
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(dad, saved.id, input()))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.setActive(dad, saved.id, false))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.setActive(dad, saved.id, true))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.deleteSchedule(dad, saved.id))
+        assertEquals(saved, onlySchedule())
+
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, saved.id, forDad.copy(title = "Lịch mới")))
+        assertEquals(RecurringResult.PAUSED, repository.setActive(parent, saved.id, false))
+        assertEquals(RecurringResult.RESUMED, repository.setActive(parent, saved.id, true))
+        assertEquals(RecurringResult.DELETED, repository.deleteSchedule(parent, saved.id))
+        assertTrue(db.recurringScheduleDao().observeByFamily(family).first().isEmpty())
+        assertEquals(1, familyTasks().size)
+    }
+
+    @Test
+    fun save_usesCurrentAssigneeName_andRejectsDepartedAssignee() = runBlocking<Unit> {
+        db.userDao().updateUser(bin.copy(name = "Bin mới"))
+        // Form vẫn giữ đối tượng bin có tên cũ.
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input()))
+        val saved = onlySchedule()
+        assertEquals("Bin mới", saved.assignedToUserName)
+
+        db.userDao().updateUser(bin.copy(familyId = ""))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, null, input(title = "Việc mới")))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, saved.id, input(title = "Đã sửa")))
+        assertEquals(saved, onlySchedule())
+        assertEquals(1, familyTasks().size)
+    }
+
+    @Test
+    fun dissolvedFamily_cannotBeModifiedUsingCachedParent() = runBlocking<Unit> {
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input()))
+        val saved = onlySchedule()
+        db.familyDao().deleteFamily(family)
+
+        assertEquals(RecurringResult.NOT_ALLOWED, repository.saveSchedule(parent, null, input()))
+        assertEquals(RecurringResult.NOT_ALLOWED, repository.saveSchedule(parent, saved.id, input()))
+        assertEquals(RecurringResult.NOT_ALLOWED, repository.setActive(parent, saved.id, false))
+        assertEquals(RecurringResult.NOT_ALLOWED, repository.deleteSchedule(parent, saved.id))
+        assertEquals(saved, onlySchedule())
+    }
 }

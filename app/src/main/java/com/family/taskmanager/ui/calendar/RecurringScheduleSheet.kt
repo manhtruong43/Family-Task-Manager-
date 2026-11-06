@@ -212,6 +212,7 @@ fun ProjectedTaskCard(schedule: RecurringSchedule) {
 fun RecurringScheduleSheet(
     schedules: List<RecurringSchedule>,
     isAdmin: Boolean,
+    currentUserId: String?,
     members: List<User>,
     isProcessing: Boolean,
     onDismiss: () -> Unit,
@@ -296,7 +297,8 @@ fun RecurringScheduleSheet(
                     items(schedules, key = { it.id }) { schedule ->
                         ScheduleCard(
                             schedule = schedule,
-                            isAdmin = isAdmin,
+                            canManage = isAdmin && currentUserId != null &&
+                                schedule.assignedToUserId != currentUserId,
                             enabled = !isProcessing,
                             onToggleActive = { active -> onToggleActive(schedule, active) },
                             onEdit = {
@@ -352,7 +354,7 @@ fun RecurringScheduleSheet(
 @Composable
 private fun ScheduleCard(
     schedule: RecurringSchedule,
-    isAdmin: Boolean,
+    canManage: Boolean,
     enabled: Boolean,
     onToggleActive: (Boolean) -> Unit,
     onEdit: () -> Unit,
@@ -408,7 +410,7 @@ private fun ScheduleCard(
                         )
                     }
                 }
-                if (isAdmin) {
+                if (canManage) {
                     Switch(
                         checked = schedule.isActive,
                         onCheckedChange = onToggleActive,
@@ -422,7 +424,7 @@ private fun ScheduleCard(
                     Text(stringResource(R.string.rec_paused), color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
                 }
             }
-            if (isAdmin) {
+            if (canManage) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,

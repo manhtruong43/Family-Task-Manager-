@@ -498,6 +498,7 @@ fun CalendarScreen(
         RecurringScheduleSheet(
             schedules = schedules,
             isAdmin = isAdmin,
+            currentUserId = currentUser?.id,
             // Chọn được cả Bố/Mẹ kia, trừ chính mình (không tự giao việc cho mình)
             members = members.filter { it.id != currentUser?.id },
             isProcessing = recurringBusy,
