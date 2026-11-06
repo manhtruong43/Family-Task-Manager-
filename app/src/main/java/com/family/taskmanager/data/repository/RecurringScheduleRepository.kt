@@ -1,10 +1,13 @@
 package com.family.taskmanager.data.repository
 
 import android.content.Context
+import android.database.sqlite.SQLiteException
+import android.util.Log
 import androidx.room.withTransaction
 import com.family.taskmanager.R
 import com.family.taskmanager.data.local.AppDatabase
 import com.family.taskmanager.data.local.RecurringScheduleDao
+import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.RepeatType
 import com.family.taskmanager.data.model.Task
@@ -36,7 +39,7 @@ enum class RecurringResult {
 data class RecurringScheduleInput(
     val title: String,
     val description: String,
-    val assignee: User?,            // null = cả nhà
+    val assigneeId: String,         // chỉ chuỗi rỗng mới là lựa chọn "Cả nhà"
     val priority: TaskPriority,
     val points: Int,
     val repeatType: RepeatType,
@@ -95,8 +98,8 @@ class RecurringScheduleRepository @Inject constructor(
             if (existing?.assignedToUserId == freshActor.id) return@withTransaction RecurringResult.INVALID_ASSIGNEE
 
             // Đọc lại người nhận trong cùng transaction; không dùng tên/gia đình từ form đã cũ.
-            val assignee = input.assignee?.let { selected ->
-                val freshAssignee = database.userDao().getUserByIdSync(selected.id)
+            val assignee = input.assigneeId.takeIf { it.isNotEmpty() }?.let { selectedId ->
+                val freshAssignee = database.userDao().getUserByIdSync(selectedId)
                 if (freshAssignee == null || freshAssignee.id == freshActor.id ||
                     freshAssignee.familyId != freshActor.familyId
                 ) {
@@ -125,7 +128,7 @@ class RecurringScheduleRepository @Inject constructor(
             RecurringResult.SAVED
         }
         // Sinh nhiệm vụ và gửi thông báo sau khi transaction lưu lịch đã hoàn tất.
-        if (result == RecurringResult.SAVED) generateDueTasks()
+        if (result == RecurringResult.SAVED) generateAfterSave()
         return result
     }
 
@@ -142,7 +145,7 @@ class RecurringScheduleRepository @Inject constructor(
             dao.upsert(if (active) skipTodayIfAlreadyPastDue(updated) else updated)
             if (active) RecurringResult.RESUMED else RecurringResult.PAUSED
         }
-        if (result == RecurringResult.RESUMED) generateDueTasks()
+        if (result == RecurringResult.RESUMED) generateAfterSave()
         return result
     }
 
@@ -169,6 +172,16 @@ class RecurringScheduleRepository @Inject constructor(
         }
     }
 
+    /** Lưu lịch đã thành công; lỗi DB khi sinh việc sẽ được thử lại ở lần chạy sau. */
+    private suspend fun generateAfterSave() {
+        try {
+            generateDueTasks()
+        } catch (exception: SQLiteException) {
+            // Không bắt CancellationException: coroutine vẫn hủy bình thường.
+            Log.w("RecurringScheduleRepo", "Schedule saved; task generation deferred", exception)
+        }
+    }
+
     /**
      * Tạo mới / sửa / bật lại lịch trình SAU giờ hạn của hôm nay -> không sinh việc hôm nay
      * (tránh vừa tạo xong đã có một nhiệm vụ quá hạn). Lần đầu sẽ là kỳ kế tiếp.
@@ -189,39 +202,29 @@ class RecurringScheduleRepository @Inject constructor(
     // ─────────────────────────── Sinh nhiệm vụ tự động ───────────────────────────
 
     /**
-     * Sinh nhiệm vụ của hôm nay cho mọi lịch trình đang bật. Gọi nhiều lần vẫn an toàn:
-     * - lastGeneratedEpochDay chặn sinh lại trong cùng ngày;
-     * - id nhiệm vụ cố định theo ngày + INSERT IGNORE chặn trùng tuyệt đối.
-     *
-     * Mỗi lịch trình được xử lý trong MỘT transaction: đọc lại lịch, kiểm tra nhóm và người nhận,
-     * thêm nhiệm vụ, đánh dấu đã sinh. Room chỉ chạy 1 transaction ghi tại một thời điểm, nên việc
-     * giải tán nhóm / xóa thành viên (FamilyRepository, cũng chạy trong transaction) không thể chen
-     * vào giữa -> không sinh việc cho nhóm vừa bị xóa hay giao việc cho người vừa rời nhóm.
-     * Thông báo chỉ gửi SAU khi transaction đã hoàn tất.
-     * @return số nhiệm vụ mới được tạo.
+     * Mỗi lần sinh lưu nhiệm vụ, thông báo trong app và dấu đã sinh trong cùng transaction.
+     * Nếu lưu thông báo lỗi thì rollback cả nhiệm vụ để lần chạy sau có thể thử lại.
+     * Thông báo hệ thống chỉ phát sau khi commit; gọi lại không tạo trùng nhiệm vụ/hộp thư.
      */
     suspend fun generateDueTasks(): Int = generateMutex.withLock {
         val zone = zone()
         val today = today()
         val todayEpoch = today.toEpochDay()
         val now = nowMillis()
-        val createdTasks = mutableListOf<Pair<RecurringSchedule, Task>>()
+        val createdTasks = mutableListOf<GenerationResult>()
 
         dao.getActiveSchedules().forEach { candidate ->
-            val created = database.withTransaction<Pair<RecurringSchedule, Task>?> {
-                // Đọc lại trong transaction: danh sách bên ngoài có thể đã cũ
+            val created = database.withTransaction<GenerationResult?> {
                 val schedule = dao.getById(candidate.id) ?: return@withTransaction null
                 if (!schedule.isActive) return@withTransaction null
                 if (schedule.lastGeneratedEpochDay >= todayEpoch) return@withTransaction null
                 if (!schedule.occursOn(today)) return@withTransaction null
 
-                // Nhóm gia đình đã bị giải tán -> tắt lịch trình "mồ côi", không sinh việc nữa
                 if (dao.countFamily(schedule.familyId) == 0) {
                     dao.upsert(schedule.copy(isActive = false))
                     return@withTransaction null
                 }
 
-                // Người được giao đã rời nhóm -> giao cho cả nhà để việc không bị "mồ côi"
                 val assigneeStillInFamily = schedule.assignedToUserId.isBlank() ||
                         dao.countUserInFamily(schedule.assignedToUserId, schedule.familyId) > 0
                 val effective = if (assigneeStillInFamily) schedule
@@ -240,34 +243,44 @@ class RecurringScheduleRepository @Inject constructor(
                     points = schedule.points,
                     deadlineTimestamp = schedule.dueAtMillis(today, zone),
                     createdAt = now,
-                    // Lịch giao cho cả nhà -> việc chung "ai làm cũng được" (bị từ chối thì trả lại cả nhà)
                     openToAll = effective.assignedToUserId.isEmpty()
                 )
                 val rowId = dao.insertTaskIfAbsent(task)
-                dao.markGenerated(schedule.id, todayEpoch)
-                if (rowId != -1L) effective to task else null
+                if (rowId == -1L) {
+                    dao.markGenerated(schedule.id, todayEpoch)
+                    null
+                } else {
+                    val notification = persistAssigneeNotifications(effective, task)
+                    dao.markGenerated(schedule.id, todayEpoch)
+                    GenerationResult(notification)
+                }
             }
             if (created != null) createdTasks += created
         }
 
-        // Thông báo là việc ngoài DB -> chỉ gửi sau khi các transaction đã commit
-        createdTasks.forEach { (schedule, task) -> notifyAssignees(schedule, task) }
+        createdTasks.mapNotNull { it.notification }.forEach { notification ->
+            notificationRepository.postNotification(
+                notification.title, notification.message, NotificationRepository.Kind.TASK
+            )
+        }
         createdTasks.size
     }
 
-    private suspend fun notifyAssignees(schedule: RecurringSchedule, task: Task) {
-        val res = ServiceLocale.localizedContext(context)
-        // Việc chung: báo cho mọi người có quyền nhận (cả Bố/Mẹ kia), trừ người giao - giống TaskRepository
+    private data class TaskNotification(val title: String, val message: String)
+    private data class GenerationResult(val notification: TaskNotification?)
+
+    /** Chỉ gọi trong transaction sinh nhiệm vụ, trước khi đánh dấu đã sinh. */
+    private suspend fun persistAssigneeNotifications(schedule: RecurringSchedule, task: Task): TaskNotification? {
         val receivers = if (task.assignedToUserId.isNotBlank()) {
             listOf(task.assignedToUserId)
         } else {
             dao.getUserIdsInFamily(schedule.familyId).filter { it != task.createdByUserId }
         }
-        if (receivers.isEmpty()) return
+        if (receivers.isEmpty()) return null
 
-        val assignee = schedule.assignedToUserName.ifBlank { res.getString(R.string.rec_everyone) }
-        notificationRepository.notifyUsers(
-            userIds = receivers,
+        val res = ServiceLocale.localizedContext(context)
+        val assignee = task.assignedToUserName.ifBlank { res.getString(R.string.rec_everyone) }
+        val notification = TaskNotification(
             title = res.getString(R.string.rec_noti_title),
             message = res.getString(
                 R.string.rec_noti_message,
@@ -275,8 +288,20 @@ class RecurringScheduleRepository @Inject constructor(
                 RecurringSchedule.formatMinuteOfDay(schedule.dueMinuteOfDay),
                 assignee,
                 task.points
-            ),
-            kind = NotificationRepository.Kind.TASK
+            )
         )
+        database.notificationDao().insertNotifications(
+            receivers.map { userId ->
+                NotificationItem(
+                    id = UUID.randomUUID().toString(),
+                    userId = userId,
+                    title = notification.title,
+                    message = notification.message,
+                    timestamp = nowMillis()
+                )
+            }
+        )
+        return notification
     }
+
 }

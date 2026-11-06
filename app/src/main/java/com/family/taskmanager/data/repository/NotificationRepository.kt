@@ -1,9 +1,12 @@
 package com.family.taskmanager.data.repository
 
+import android.os.RemoteException
+import android.util.Log
 import com.family.taskmanager.data.local.NotificationDao
 import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.service.PushNotificationService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import javax.inject.Inject
@@ -63,9 +66,34 @@ class NotificationRepository @Inject constructor(
             }
         )
 
-        when (kind) {
-            Kind.TASK -> pushNotificationService.sendTaskNotification(title, message)
-            Kind.REWARD -> pushNotificationService.sendRewardNotification(title, message)
+        postNotification(title, message, kind)
+    }
+
+    /** Chỉ phát thông báo hệ thống; hộp thư phải được lưu trước khi gọi. */
+    internal fun postNotification(title: String, message: String, kind: Kind) {
+        postLocalNotificationSafely {
+            when (kind) {
+                Kind.TASK -> pushNotificationService.sendTaskNotification(title, message)
+                Kind.REWARD -> pushNotificationService.sendRewardNotification(title, message)
+            }
+        }.exceptionOrNull()?.let { exception ->
+            Log.w("NotificationRepo", "Inbox saved; system notification unavailable", exception)
         }
+    }
+}
+
+/** Chỉ bỏ qua lỗi quyền/dịch vụ hệ thống; giữ nguyên hủy coroutine và lỗi lập trình. */
+internal fun postLocalNotificationSafely(post: () -> Unit): Result<Unit> {
+    return try {
+        post()
+        Result.success(Unit)
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: SecurityException) {
+        Result.failure(exception)
+    } catch (exception: RemoteException) {
+        Result.failure(exception)
+    } catch (exception: RuntimeException) {
+        if (exception.cause is RemoteException) Result.failure(exception) else throw exception
     }
 }

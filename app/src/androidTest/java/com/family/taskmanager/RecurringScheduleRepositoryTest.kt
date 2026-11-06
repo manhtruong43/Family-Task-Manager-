@@ -1,5 +1,6 @@
 package com.family.taskmanager
 
+import android.database.sqlite.SQLiteException
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -26,6 +27,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -85,7 +87,7 @@ class RecurringScheduleRepositoryTest {
     ) = RecurringScheduleInput(
         title = title,
         description = "",
-        assignee = bin,
+        assigneeId = bin.id,
         priority = TaskPriority.MEDIUM,
         points = points,
         repeatType = repeatType,
@@ -199,6 +201,7 @@ class RecurringScheduleRepositoryTest {
 
         assertEquals(1, created.sum())
         assertEquals(1, familyTasks().size)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
     }
 
     @Test
@@ -228,21 +231,21 @@ class RecurringScheduleRepositoryTest {
 
     @Test
     fun save_cannotAssignToYourself_orOutsider_butCanAssignOtherParent() = runBlocking<Unit> {
-        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, null, input().copy(assignee = parent)))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, null, input().copy(assigneeId = parent.id)))
         val outsider = User(id = "out", name = "Khách", email = "o@x.com", role = UserRole.MEMBER, familyId = "family-2")
         db.userDao().insertUser(outsider)
-        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, null, input().copy(assignee = outsider)))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, null, input().copy(assigneeId = outsider.id)))
 
-        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input(title = "Nấu cơm").copy(assignee = dad)))
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input(title = "Nấu cơm").copy(assigneeId = dad.id)))
         val saved = db.recurringScheduleDao().observeByFamily(family).first().single()
         // Lịch đang giao cho Bố: Bố không tự sửa được, Mẹ thì sửa được
-        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(dad, saved.id, input(title = "Nấu cơm").copy(assignee = bin)))
-        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, saved.id, input(title = "Nấu cơm").copy(assignee = bin)))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(dad, saved.id, input(title = "Nấu cơm").copy(assigneeId = bin.id)))
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, saved.id, input(title = "Nấu cơm").copy(assigneeId = bin.id)))
     }
 
     @Test
     fun everyoneSchedule_notifiesOtherParentAndChildren_butNotTheCreator() = runBlocking<Unit> {
-        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input().copy(assignee = null)))
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input().copy(assigneeId = "")))
 
         val task = familyTasks().single()
         assertTrue(task.openToAll)
@@ -285,7 +288,7 @@ class RecurringScheduleRepositoryTest {
 
     @Test
     fun assignedParent_cannotEditPauseResumeOrDelete_butOtherParentCan() = runBlocking<Unit> {
-        val forDad = input().copy(assignee = dad)
+        val forDad = input().copy(assigneeId = dad.id)
         assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, forDad))
         val saved = onlySchedule()
 
@@ -329,5 +332,103 @@ class RecurringScheduleRepositoryTest {
         assertEquals(RecurringResult.NOT_ALLOWED, repository.setActive(parent, saved.id, false))
         assertEquals(RecurringResult.NOT_ALLOWED, repository.deleteSchedule(parent, saved.id))
         assertEquals(saved, onlySchedule())
+    }
+
+    @Test
+    fun missingAssigneeId_isRejectedWithoutChangingToEveryone() = runBlocking<Unit> {
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input()))
+        val saved = onlySchedule()
+        val missing = input().copy(assigneeId = "missing-member")
+
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, saved.id, missing))
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(parent, null, missing))
+        assertEquals(saved, onlySchedule())
+        assertEquals(bin.id, onlySchedule().assignedToUserId)
+    }
+
+    @Test
+    fun explicitEmptyAssigneeId_changesScheduleToEveryone() = runBlocking<Unit> {
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input()))
+        val saved = onlySchedule()
+
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, saved.id, input().copy(assigneeId = "")))
+        assertEquals("", onlySchedule().assignedToUserId)
+        assertEquals("", onlySchedule().assignedToUserName)
+
+        repository.clock = clockAt(today.plusDays(1).atTime(0, 1))
+        assertEquals(1, repository.generateDueTasks())
+        assertTrue(db.taskDao().getTaskById(saved.taskIdFor(today.plusDays(1)))!!.openToAll)
+        assertEquals(bin.id, db.taskDao().getTaskById(saved.taskIdFor(today))!!.assignedToUserId)
+    }
+
+    @Test
+    fun save_reportsCommittedSuccess_whenGenerationFails_thenRetryCreatesOneInboxEntry() = runBlocking<Unit> {
+        rejectNotificationInserts()
+
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, input()))
+        assertEquals(-1L, onlySchedule().lastGeneratedEpochDay)
+        assertTrue(familyTasks().isEmpty())
+        assertTrue(db.notificationDao().getNotificationsByUser(bin.id).first().isEmpty())
+
+        allowNotificationInserts()
+        assertEquals(1, repository.generateDueTasks())
+        assertEquals(0, repository.generateDueTasks())
+        assertEquals(1, familyTasks().size)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
+    }
+
+    @Test
+    fun resume_reportsCommittedSuccess_whenGenerationFails() = runBlocking<Unit> {
+        db.recurringScheduleDao().upsert(
+            RecurringSchedule(id = "resume-failure", familyId = family, title = "Tưới cây",
+                assignedToUserId = bin.id, assignedToUserName = bin.name,
+                createdByUserId = parent.id, isActive = false)
+        )
+        rejectNotificationInserts()
+
+        assertEquals(RecurringResult.RESUMED, repository.setActive(parent, "resume-failure", true))
+        assertTrue(onlySchedule().isActive)
+        assertEquals(-1L, onlySchedule().lastGeneratedEpochDay)
+        assertTrue(familyTasks().isEmpty())
+
+        allowNotificationInserts()
+        assertEquals(1, repository.generateDueTasks())
+        assertEquals(0, repository.generateDueTasks())
+        assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
+    }
+
+    @Test
+    fun generation_rollsBackTaskAndMarker_whenInboxWriteFails() = runBlocking<Unit> {
+        db.recurringScheduleDao().upsert(
+            RecurringSchedule(id = "inbox-failure", familyId = family, title = "Gấp quần áo",
+                assignedToUserId = bin.id, assignedToUserName = bin.name, createdByUserId = parent.id)
+        )
+        rejectNotificationInserts()
+
+        try {
+            repository.generateDueTasks()
+            fail("Inbox insert failure must roll back generation")
+        } catch (_: SQLiteException) {
+            assertTrue(familyTasks().isEmpty())
+            assertEquals(-1L, onlySchedule().lastGeneratedEpochDay)
+            assertTrue(db.notificationDao().getNotificationsByUser(bin.id).first().isEmpty())
+        }
+
+        allowNotificationInserts()
+        assertEquals(1, repository.generateDueTasks())
+        assertEquals(0, repository.generateDueTasks())
+        assertEquals(1, familyTasks().size)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
+    }
+
+    private fun rejectNotificationInserts() {
+        db.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER fail_schedule_inbox BEFORE INSERT ON notifications " +
+                "BEGIN SELECT RAISE(ABORT, 'injected inbox failure'); END"
+        )
+    }
+
+    private fun allowNotificationInserts() {
+        db.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_schedule_inbox")
     }
 }
