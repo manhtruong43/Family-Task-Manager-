@@ -73,10 +73,14 @@ import com.family.taskmanager.R
 import com.family.taskmanager.data.model.RecurringAssignmentMode
 import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.RepeatType
+import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.repository.RecurringScheduleInput
 import com.family.taskmanager.ui.theme.GlassCard
+
+import java.time.Instant
+import java.time.ZoneId
 
 private val SheetBackground = Color(0xFF1E1B4B)
 private val RecAccent = Color(0xFF22D3EE)
@@ -150,7 +154,7 @@ fun RecurringSummaryCard(
 
 /** Thẻ mờ cho lần lặp sắp tới: chưa phải nhiệm vụ thật, app sẽ tự tạo vào đúng ngày. */
 @Composable
-fun ProjectedTaskCard(schedule: RecurringSchedule) {
+fun ProjectedTaskCard(task: Task) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
         backgroundColor = Color.White.copy(alpha = 0.05f),
@@ -167,12 +171,12 @@ fun ProjectedTaskCard(schedule: RecurringSchedule) {
                     .width(4.dp)
                     .height(44.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(priorityColor(schedule.priority).copy(alpha = 0.5f))
+                    .background(priorityColor(task.priority).copy(alpha = 0.5f))
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    schedule.title,
+                    task.title,
                     color = Color.White.copy(alpha = 0.85f),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
@@ -183,8 +187,8 @@ fun ProjectedTaskCard(schedule: RecurringSchedule) {
                 Text(
                     stringResource(
                         R.string.rec_meta,
-                        assigneeLabel(schedule),
-                        schedule.points
+                        if (task.assignedToUserId.isEmpty()) stringResource(R.string.rec_everyone_shared) else task.assignedToUserName,
+                        task.points
                     ),
                     color = Color.White.copy(alpha = 0.6f),
                     fontSize = 12.sp,
@@ -195,7 +199,8 @@ fun ProjectedTaskCard(schedule: RecurringSchedule) {
                 Text(
                     stringResource(
                         R.string.rec_projected_note,
-                        RecurringSchedule.formatMinuteOfDay(schedule.dueMinuteOfDay)
+                        RecurringSchedule.formatMinuteOfDay(Instant.ofEpochMilli(task.deadlineTimestamp)
+                            .atZone(ZoneId.systemDefault()).let { it.hour * 60 + it.minute })
                     ),
                     color = RecAccent,
                     fontSize = 12.sp
@@ -298,8 +303,9 @@ fun RecurringScheduleSheet(
                     items(schedules, key = { it.id }) { schedule ->
                         ScheduleCard(
                             schedule = schedule,
-                            canManage = isAdmin && currentUserId != null &&
-                                schedule.assignedToUserId != currentUserId,
+                            canManage = isAdmin && schedule.canBeManagedBy(
+                                members.firstOrNull { it.id == currentUserId }, members
+                            ),
                             enabled = !isProcessing,
                             onToggleActive = { active -> onToggleActive(schedule, active) },
                             onEdit = {
@@ -318,7 +324,7 @@ fun RecurringScheduleSheet(
     if (showEditor && isAdmin) {
         RecurringEditorDialog(
             initial = editorTarget,
-            members = members,
+            members = members.filter { it.id != currentUserId },
             isProcessing = isProcessing,
             onDismiss = { showEditor = false },
             onConfirm = { input ->
@@ -464,7 +470,7 @@ private fun RecurringEditorDialog(
 ) {
     val context = LocalContext.current
     val dayLabels = stringArrayResource(R.array.rec_days_short)
-    // Danh sách đã được lọc sẵn ở CalendarScreen: cả Con lẫn Bố/Mẹ kia, trừ người đang giao
+    // Sheet đã loại người đang thao tác khỏi lựa chọn giao việc; vẫn giữ cả Con lẫn Bố/Mẹ kia.
     val assignableMembers = members
 
     var title by rememberSaveable { mutableStateOf(initial?.title ?: "") }

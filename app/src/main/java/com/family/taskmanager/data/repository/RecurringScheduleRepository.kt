@@ -96,7 +96,9 @@ class RecurringScheduleRepository @Inject constructor(
                 return@withTransaction RecurringResult.NOT_FOUND
             }
             // Người được giao không tự sửa, bật/tắt hoặc xóa lịch trình của mình.
-            if (existing?.assignedToUserId == freshActor.id) return@withTransaction RecurringResult.INVALID_ASSIGNEE
+            if (existing != null && !canManageSchedule(freshActor, existing)) {
+                return@withTransaction RecurringResult.INVALID_ASSIGNEE
+            }
 
             // Đọc lại người nhận trong cùng transaction; không dùng tên/gia đình từ form đã cũ.
             val assignee = input.assigneeId.takeIf { it.isNotEmpty() }?.let { selectedId ->
@@ -141,7 +143,7 @@ class RecurringScheduleRepository @Inject constructor(
             if (schedule == null || schedule.familyId != freshActor.familyId) {
                 return@withTransaction RecurringResult.NOT_FOUND
             }
-            if (schedule.assignedToUserId == freshActor.id) return@withTransaction RecurringResult.INVALID_ASSIGNEE
+            if (!canManageSchedule(freshActor, schedule)) return@withTransaction RecurringResult.INVALID_ASSIGNEE
 
             val updated = schedule.copy(isActive = active)
             dao.upsert(if (active) skipTodayIfAlreadyPastDue(updated) else updated)
@@ -159,11 +161,15 @@ class RecurringScheduleRepository @Inject constructor(
             if (schedule == null || schedule.familyId != freshActor.familyId) {
                 return@withTransaction RecurringResult.NOT_FOUND
             }
-            if (schedule.assignedToUserId == freshActor.id) return@withTransaction RecurringResult.INVALID_ASSIGNEE
+            if (!canManageSchedule(freshActor, schedule)) return@withTransaction RecurringResult.INVALID_ASSIGNEE
 
             dao.deleteById(scheduleId)
             RecurringResult.DELETED
         }
+
+    /** Chỉ gọi trong transaction để quyền và danh sách người thực sự nhận việc không bị lệch lúc ghi. */
+    private suspend fun canManageSchedule(actor: User, schedule: RecurringSchedule): Boolean =
+        schedule.canBeManagedBy(actor, database.userDao().getUsersByFamilySync(schedule.familyId))
 
     /** Chỉ gọi trong transaction quản lý lịch; phiên trên UI có thể đã cũ. */
     private suspend fun freshManager(actor: User): User? {

@@ -78,22 +78,9 @@ data class RecurringSchedule(
         generatedAt: Long,
         zone: ZoneId = ZoneId.systemDefault()
     ): List<Task> {
-        val familyMembers = members.filter { it.familyId == familyId }.distinctBy { it.id }
-        fun hasReviewer(worker: User): Boolean = familyMembers.any {
-            it.role == UserRole.ADMIN && it.id != worker.id
-        }
-        val dedicatedAssignee = familyMembers.firstOrNull {
-            it.id == assignedToUserId && hasReviewer(it)
-        }
+        val assignees = recipientsForOccurrence(members)
         val separateForEveryone = assignedToUserId.isEmpty() &&
             assignmentMode == RecurringAssignmentMode.EACH_MEMBER
-        val assignees: List<User?> = when {
-            assignedToUserId.isNotEmpty() -> listOf(dedicatedAssignee)
-            separateForEveryone -> familyMembers.filter {
-                it.id != createdByUserId && hasReviewer(it)
-            }
-            else -> listOf(null)
-        }
         return assignees.map { assignee ->
             Task(
                 id = if (separateForEveryone) "${taskIdFor(date)}_each_${assignee!!.id}" else taskIdFor(date),
@@ -110,6 +97,36 @@ data class RecurringSchedule(
                 createdAt = generatedAt,
                 openToAll = assignee == null
             )
+        }
+    }
+
+    /**
+     * Cùng quy tắc quản lý ở UI và repository. Repository phải truyền actor/thành viên mới nhất
+     * trong transaction. Người tạo vẫn quản lý được lịch; lịch chung nhận trước giữ hành vi cũ.
+     */
+    fun canBeManagedBy(actor: User?, members: List<User>): Boolean {
+        if (actor == null || actor.role != UserRole.ADMIN ||
+            actor.familyId.isBlank() || actor.familyId != familyId
+        ) return false
+        if (assignedToUserId == actor.id) return false
+        if (actor.id == createdByUserId) return true
+        return assignedToUserId.isNotEmpty() || assignmentMode != RecurringAssignmentMode.EACH_MEMBER ||
+            recipientsForOccurrence(members).none { it?.id == actor.id }
+    }
+
+    private fun recipientsForOccurrence(members: List<User>): List<User?> {
+        val familyMembers = members.filter { it.familyId == familyId }.distinctBy { it.id }
+        fun hasReviewer(worker: User): Boolean = familyMembers.any {
+            it.role == UserRole.ADMIN && it.id != worker.id
+        }
+        return when {
+            assignedToUserId.isNotEmpty() -> listOf(
+                familyMembers.firstOrNull { it.id == assignedToUserId && hasReviewer(it) }
+            )
+            assignmentMode == RecurringAssignmentMode.EACH_MEMBER -> familyMembers.filter {
+                it.id != createdByUserId && hasReviewer(it)
+            }
+            else -> listOf(null)
         }
     }
 
