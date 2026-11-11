@@ -44,6 +44,16 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.maxParallelForks = 1
+            it.maxHeapSize = "1024m"
+            it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+        }
+    }
+    // Fixtures dùng schema đã commit, không tạo DB cũ bằng các model hiện tại.
+    sourceSets.getByName("test").resources.srcDir("schemas")
 }
 
 dependencies {
@@ -79,6 +89,7 @@ dependencies {
 
     // Testing
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -186,23 +186,17 @@ fun CalendarScreen(
     val tasksOnSelectedDate = (tasksByDay[selectedDateMillis] ?: emptyList())
         .sortedBy { it.deadlineTimestamp }
 
-    // Lịch trình đang bật (đã lọc "Của tôi" nếu cần) -> dùng để hiện việc DỰ KIẾN của các ngày sắp tới.
-    // Hôm nay và quá khứ đã có nhiệm vụ thật được sinh ra nên không hiện dự kiến nữa.
-    // "Của tôi" theo cùng quy tắc với nhiệm vụ thật: giao cho mình, hoặc việc chung mà mình không phải người giao
-    val visibleSchedules = remember(schedules, onlyMine, currentUser, members) {
-        schedules.filter { schedule ->
-            schedule.isActive && (!onlyMine ||
-                schedule.tasksForOccurrence(RecurringSchedule.dateOf(now), members, now)
-                    .any { TaskPermissions.isMine(currentUser, it) })
-        }
-    }
+    // Dự kiến là từng nhiệm vụ, không phải số mẫu lịch; lọc người xem sau khi tách việc riêng.
     val todayStart = startOfDay(System.currentTimeMillis())
-    fun projectedOn(dayMillis: Long): List<RecurringSchedule> {
+    fun projectedOn(dayMillis: Long): List<Task> {
         if (dayMillis <= todayStart) return emptyList()
-        val date = RecurringSchedule.dateOf(dayMillis)
-        return visibleSchedules
-            .filter { it.occursOn(date) }
-            .sortedBy { it.dueMinuteOfDay }
+        return projectedRecurringTasks(
+            date = RecurringSchedule.dateOf(dayMillis),
+            schedules = schedules,
+            members = members,
+            viewer = currentUser,
+            onlyMine = onlyMine
+        )
     }
     val projectedOnSelectedDate = projectedOn(selectedDateMillis)
 
@@ -373,7 +367,11 @@ fun CalendarScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        WeekStatCard("📋", stringResource(R.string.cal_week_total), weekTasks.size, AccentIndigo, Modifier.weight(1f))
+                        WeekStatCard(
+                            "📋", stringResource(R.string.cal_week_total),
+                            weekTasks.size + weekDays.sumOf { projectedOn(it).size },
+                            AccentIndigo, Modifier.weight(1f)
+                        )
                         WeekStatCard("✅", stringResource(R.string.cal_week_done), weekDone, AccentGreen, Modifier.weight(1f))
                         WeekStatCard("⚠️", stringResource(R.string.cal_week_overdue), weekOverdue, AccentRed, Modifier.weight(1f))
                     }
@@ -465,8 +463,8 @@ fun CalendarScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
-                    items(projectedOnSelectedDate, key = { "projected_" + it.id }) { schedule ->
-                        ProjectedTaskCard(schedule = schedule)
+                    items(projectedOnSelectedDate, key = { "projected_" + it.id }) { task ->
+                        ProjectedTaskCard(task = task)
                     }
                 }
 
@@ -499,8 +497,8 @@ fun CalendarScreen(
             schedules = schedules,
             isAdmin = isAdmin,
             currentUserId = currentUser?.id,
-            // Chọn được cả Bố/Mẹ kia, trừ chính mình (không tự giao việc cho mình)
-            members = members.filter { it.id != currentUser?.id },
+            // Quyền quản lý cần cả danh sách mới nhất; màn nhập tự loại người đang thao tác.
+            members = members,
             isProcessing = recurringBusy,
             onDismiss = { showSchedules = false },
             onSave = { editingId, input, onSaved ->
