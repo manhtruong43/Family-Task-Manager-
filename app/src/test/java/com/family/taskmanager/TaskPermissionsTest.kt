@@ -144,4 +144,18 @@ class TaskPermissionsTest {
         assertEquals(R.string.home_role_parent, legacyParent.displayRoleRes(homeStyle = true))
         assertEquals(R.string.home_role_child, bin.displayRoleRes(homeStyle = true))
     }
+
+    @Test
+    fun parentWorker_requiresAnotherAdminInFamily_toHaveValidReviewer() {
+        // Còn phụ huynh khác trong nhóm -> Bố được nhận việc chung và Mẹ được giao việc cho Bố
+        assertTrue(TaskPermissions.canWork(dad, taskForEveryone, hasOtherAdminInFamily = true))
+        assertTrue(TaskPermissions.canAssignTo(parent, dad, hasOtherAdminForAssignee = true))
+
+        // Nếu Mẹ đã rời nhóm (Bố là phụ huynh duy nhất còn lại) -> Bố không nhận việc chung để tránh kẹt người duyệt,
+        // trong khi các con vẫn làm việc chung bình thường và Bố là người duyệt.
+        assertFalse(TaskPermissions.canWork(dad, taskForEveryone, hasOtherAdminInFamily = false))
+        assertFalse(TaskPermissions.canAssignTo(parent, dad, hasOtherAdminForAssignee = false))
+        assertTrue(TaskPermissions.canWork(bin, taskForEveryone, hasOtherAdminInFamily = false))
+        assertTrue(TaskPermissions.canWork(na, taskForEveryone, hasOtherAdminInFamily = false))
+    }
 }

@@ -135,6 +135,7 @@ fun CreateEditTaskScreen(
     val assignableMembers = members.filter { it.id != currentUser?.id }
     // Lưu id (String) thay vì cả đối tượng User để có thể rememberSaveable
     var selectedAssigneeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var assigneeChangedByUser by rememberSaveable { mutableStateOf(false) }
     val selectedAssignee: User? = assignableMembers.find { it.id == selectedAssigneeId }
     var expandedAssignee by remember { mutableStateOf(false) }
 
@@ -157,6 +158,7 @@ fun CreateEditTaskScreen(
             // Giữ đúng cả giá trị 0 (việc không có hạn): chỉ đổi khi Bố/Mẹ tự chọn ngày mới
             selectedDeadlineTimestamp = task.deadlineTimestamp
             selectedAssigneeId = task.assignedToUserId.ifEmpty { null }
+            assigneeChangedByUser = false
             prefilled = true
         }
     }
@@ -219,9 +221,13 @@ fun CreateEditTaskScreen(
                     ?.takeIf { it.assignedToUserId == selectedAssigneeId }
                     ?.assignedToUserName
                     ?.takeIf { it.isNotBlank() }
-                val assigneeDisplayText = selectedAssignee?.name
-                    ?: fallbackAssigneeName
-                    ?: stringResource(R.string.task_assign_all)
+                val baseAssigneeName = selectedAssignee?.name ?: fallbackAssigneeName
+                val assigneeDisplayText = when {
+                    baseAssigneeName == null -> stringResource(R.string.task_assign_all)
+                    editingTask?.openToAll == true && !assigneeChangedByUser ->
+                        "$baseAssigneeName (${stringResource(R.string.tk_mode_anyone)})"
+                    else -> baseAssigneeName
+                }
                 ExposedDropdownMenuBox(
                     expanded = expandedAssignee,
                     onExpandedChange = { expandedAssignee = !expandedAssignee }
@@ -243,6 +249,7 @@ fun CreateEditTaskScreen(
                             text = { Text(stringResource(R.string.task_assign_all)) },
                             onClick = {
                                 selectedAssigneeId = null
+                                assigneeChangedByUser = true
                                 expandedAssignee = false
                             }
                         )
@@ -251,6 +258,7 @@ fun CreateEditTaskScreen(
                                 text = { Text("${user.name} (${roleLabel(user)})") },
                                 onClick = {
                                     selectedAssigneeId = user.id
+                                    assigneeChangedByUser = true
                                     expandedAssignee = false
                                 }
                             )
@@ -423,6 +431,7 @@ fun CreateEditTaskScreen(
                         }
                     }
                     if (taskId != null) {
+                        val openToAllOverride = if (assigneeChangedByUser) (selectedAssigneeId == null) else null
                         viewModel.updateTask(
                             taskId = taskId,
                             title = title,
@@ -432,6 +441,7 @@ fun CreateEditTaskScreen(
                             points = points ?: 0,
                             deadlineTimestamp = selectedDeadlineTimestamp,
                             assigneeId = selectedAssigneeId,
+                            openToAll = openToAllOverride,
                             onResult = handleResult
                         )
                     } else if (eachSelected.size == 1) {

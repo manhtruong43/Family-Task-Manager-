@@ -150,13 +150,25 @@ class FamilyRepository @Inject constructor(
         // thì người sau sẽ thấy mình là Bố/Mẹ cuối cùng, nhóm không bao giờ bị bỏ trống quản lý.
         database.withTransaction {
             val otherParent = familyDao.getOtherParent(familyId, user.id)
+            val otherParentCount = familyDao.countOtherParents(familyId, user.id)
             when {
-                otherParent != null -> {
+                otherParent != null &&
+                    (otherParentCount > 1 || familyDao.countUnfinishedTasksOfUser(familyId, otherParent.id) == 0) -> {
                     detachMemberInTransaction(familyId, user.id)
+                    if (otherParentCount == 1) {
+                        // Phụ huynh còn lại trở thành phụ huynh duy nhất -> chuyển lịch lặp đang giao cho họ về việc chung
+                        // để các kỳ tiếp theo không sinh ra việc bị kẹt không ai duyệt.
+                        familyDao.releaseSchedules(familyId, otherParent.id)
+                    }
                     val family = familyDao.getFamilyByIdOnce(familyId)
                     if (family != null && family.adminId == user.id) {
                         familyDao.updateFamilyOwner(familyId, otherParent.id)
                     }
+                }
+                otherParent != null -> {
+                    // Phụ huynh còn lại là Bố/Mẹ duy nhất và đang có việc chưa hoàn thành cần người duyệt/quản lý:
+                    // chặn rời nhóm để không làm việc của họ bị kẹt hoặc mất minh chứng.
+                    result = FamilyResult.Failure(FamilyError.ADMIN_MUST_STAY)
                 }
                 familyDao.countMembers(familyId) > 1 -> {
                     result = FamilyResult.Failure(FamilyError.ADMIN_MUST_STAY)

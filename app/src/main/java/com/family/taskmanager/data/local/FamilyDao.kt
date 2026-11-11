@@ -50,6 +50,17 @@ interface FamilyDao {
     @Query("SELECT * FROM users WHERE familyId = :familyId AND role = 'ADMIN' AND id != :excludeUserId LIMIT 1")
     suspend fun getOtherParent(familyId: String, excludeUserId: String): User?
 
+    /** Đếm số Bố/Mẹ khác (không phải [excludeUserId]) đang ở trong nhóm. */
+    @Query("SELECT COUNT(*) FROM users WHERE familyId = :familyId AND role = 'ADMIN' AND id != :excludeUserId")
+    suspend fun countOtherParents(familyId: String, excludeUserId: String): Int
+
+    /** Đếm số nhiệm vụ chưa hoàn thành đang giao cho [userId] trong gia đình [familyId]. */
+    @Query(
+        "SELECT COUNT(*) FROM tasks WHERE familyId = :familyId AND assignedToUserId = :userId " +
+            "AND status IN ('TODO', 'IN_PROGRESS', 'REJECTED', 'PENDING_APPROVAL')"
+    )
+    suspend fun countUnfinishedTasksOfUser(familyId: String, userId: String): Int
+
     /** Đưa 1 người ra khỏi nhóm gia đình (rời nhóm hoặc bị Admin xóa). */
     @Query("UPDATE users SET familyId = '' WHERE id = :userId")
     suspend fun clearUserFamily(userId: String)

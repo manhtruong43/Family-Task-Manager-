@@ -227,7 +227,11 @@ class RecurringScheduleRepository @Inject constructor(
 
                 val assigneeStillInFamily = schedule.assignedToUserId.isBlank() ||
                         dao.countUserInFamily(schedule.assignedToUserId, schedule.familyId) > 0
-                val effective = if (assigneeStillInFamily) schedule
+                val adminIds = dao.getUserIdsByRole(schedule.familyId, UserRole.ADMIN)
+                val assigneeHasReviewer = schedule.assignedToUserId.isBlank() ||
+                        schedule.assignedToUserId !in adminIds ||
+                        adminIds.any { it != schedule.assignedToUserId }
+                val effective = if (assigneeStillInFamily && assigneeHasReviewer) schedule
                 else schedule.copy(assignedToUserId = "", assignedToUserName = "")
 
                 val task = Task(

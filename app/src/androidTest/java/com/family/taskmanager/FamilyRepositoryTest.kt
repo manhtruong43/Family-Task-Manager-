@@ -291,4 +291,32 @@ class FamilyRepositoryTest {
         assertTrue(db.taskDao().getTasksByFamily(family.id).first().isEmpty())
         assertTrue(db.rewardDao().getRewardsByFamily(family.id).first().isEmpty())
     }
+
+    @Test
+    fun lastReviewerLeaving_isBlockedWhileOtherParentHasUnfinishedTask_andReleasesSchedulesWhenCleared() = runBlocking<Unit> {
+        val family = createFamily()
+        repository.joinFamilyByCode(family.inviteCode, dad)
+        repository.joinFamilyByCode(family.inviteCode, bin)
+
+        // Mẹ giao việc cho Bố và tạo lịch lặp cho Bố
+        val dadTask = task("dad-pending", family.id, user(dad.id), TaskStatus.PENDING_APPROVAL)
+        db.taskDao().insertTask(dadTask)
+        db.recurringScheduleDao().upsert(
+            RecurringSchedule(
+                id = "rec-dad", familyId = family.id, title = "Nấu cơm",
+                assignedToUserId = dad.id, assignedToUserName = dad.name, createdByUserId = parent.id
+            )
+        )
+
+        // Khi Bố còn việc chưa hoàn thành mà Mẹ là người duyệt duy nhất -> chặn Mẹ rời nhóm
+        assertEquals(FamilyError.ADMIN_MUST_STAY, errorOf(repository.leaveFamily(parent.id)))
+        assertEquals(family.id, user(parent.id).familyId)
+        assertEquals("file:///proof.jpg", db.taskDao().getTaskById("dad-pending")!!.proofImageUrl)
+
+        // Sau khi việc của Bố đã hoàn thành, Mẹ rời nhóm được và lịch lặp của Bố chuyển về cả nhà
+        db.taskDao().updateTask(dadTask.copy(status = TaskStatus.COMPLETED))
+        assertTrue(repository.leaveFamily(parent.id) is FamilyResult.Success)
+        assertEquals("", user(parent.id).familyId)
+        assertEquals("", db.recurringScheduleDao().getById("rec-dad")!!.assignedToUserId)
+    }
 }

@@ -76,6 +76,7 @@ import com.family.taskmanager.R
 import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.TaskStatus
+import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.repository.ProofImageStorage
 import com.family.taskmanager.data.repository.TaskActionResult
 import com.family.taskmanager.data.repository.TaskPermissions
@@ -95,6 +96,7 @@ fun TaskDetailScreen(
     val tasks by viewModel.familyTasks.collectAsState()
     val task = tasks.find { it.id == taskId }
     val currentUser by viewModel.currentUser.collectAsState()
+    val familyMembers by viewModel.familyMembers.collectAsState()
     LaunchedEffect(taskId) {
         viewModel.observeTaskReactions(taskId)
     }
@@ -162,7 +164,9 @@ fun TaskDetailScreen(
                 }
             } else {
                 // Phân quyền: chỉ người được giao mới làm / nộp minh chứng; chỉ Bố/Mẹ cùng nhà mới duyệt
-                val canWork = TaskPermissions.canWork(currentUser, task)
+                val hasOtherAdmin = familyMembers.isEmpty() ||
+                    familyMembers.any { it.role == UserRole.ADMIN && it.id != currentUser?.id }
+                val canWork = TaskPermissions.canWork(currentUser, task, hasOtherAdmin)
                 val canReview = TaskPermissions.canReview(currentUser, task)
                 val canEdit = TaskPermissions.canEdit(currentUser, task)
                 val canCancel = TaskPermissions.canCancel(currentUser, task)
