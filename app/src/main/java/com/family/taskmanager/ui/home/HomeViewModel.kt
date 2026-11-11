@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -84,9 +86,41 @@ class HomeViewModel @Inject constructor(
     private val _isSavingTask = MutableStateFlow(false)
     val isSavingTask: StateFlow<Boolean> = _isSavingTask.asStateFlow()
 
-    fun getTaskReactions(taskId: String): StateFlow<List<TaskReaction>> =
-        taskRepository.getReactionsByTask(taskId)
+    private val _observedReactionTaskId = MutableStateFlow<String?>(null)
+
+    /**
+     * Luồng cảm xúc ổn định cho nhiệm vụ đang xem:
+     * - Dùng flatMapLatest khi đổi taskId để ngừng theo dõi nhiệm vụ cũ ngay lập tức.
+     * - Kết hợp currentUser để khi đổi tài khoản hoặc rời gia đình không giữ lại dữ liệu phiên cũ.
+     * - Chỉ chia sẻ bằng stateIn một lần duy nhất trong ViewModel, tránh tạo collector thừa khi recompose.
+     */
+    val observedTaskReactions: StateFlow<List<TaskReaction>> =
+        combine(currentUser, _observedReactionTaskId) { user, taskId ->
+            if (user != null && user.familyId.isNotEmpty() && !taskId.isNullOrBlank()) {
+                user.familyId to taskId
+            } else {
+                null
+            }
+        }
+            .distinctUntilChanged()
+            .flatMapLatest { contextPair ->
+                if (contextPair != null) {
+                    taskRepository.getReactionsByTask(contextPair.second)
+                } else {
+                    flowOf(emptyList())
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun observeTaskReactions(taskId: String): StateFlow<List<TaskReaction>> {
+        if (_observedReactionTaskId.value != taskId) {
+            _observedReactionTaskId.value = taskId
+        }
+        return observedTaskReactions
+    }
+
+    fun getTaskReactions(taskId: String): StateFlow<List<TaskReaction>> =
+        observeTaskReactions(taskId)
 
     fun toggleReaction(taskId: String, emoji: String) {
         val user = currentUser.value ?: return

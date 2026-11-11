@@ -61,11 +61,15 @@ enum class AuthTab {
     REGISTER
 }
 
-/** Phân biệt rõ Bố / Mẹ / Con khi đăng ký (Bố và Mẹ đều có quyền ADMIN). */
-enum class RegisterIdentity(val role: UserRole, val defaultAvatar: String) {
-    FATHER(UserRole.ADMIN, "🧔"),
-    MOTHER(UserRole.ADMIN, "👩"),
-    CHILD(UserRole.MEMBER, "👦")
+/** Phân biệt rõ Bố / Mẹ / Con khi đăng ký (nhãn quan hệ lưu độc lập với avatar). */
+enum class RegisterIdentity(
+    val role: UserRole,
+    val relationLabel: String,
+    val defaultAvatar: String
+) {
+    FATHER(UserRole.ADMIN, User.RELATION_FATHER, "🧔"),
+    MOTHER(UserRole.ADMIN, User.RELATION_MOTHER, "👩"),
+    CHILD(UserRole.MEMBER, User.RELATION_CHILD, "👦")
 }
 
 private val AccentBlue = Color(0xFF38BDF8)
@@ -225,7 +229,8 @@ fun LoginScreen(
                                         name = regName,
                                         email = regEmail,
                                         role = selectedIdentity.role,
-                                        avatarUrl = selectedAvatar
+                                        avatarUrl = selectedAvatar,
+                                        relationLabel = selectedIdentity.relationLabel
                                     )
                                 },
                                 onSwitchToLogin = {

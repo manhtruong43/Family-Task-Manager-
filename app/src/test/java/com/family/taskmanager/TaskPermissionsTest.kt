@@ -5,6 +5,7 @@ import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.repository.TaskPermissions
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -122,5 +123,25 @@ class TaskPermissionsTest {
         assertTrue(TaskPermissions.isMine(bin, taskForBin))
         assertTrue(TaskPermissions.isMine(na, taskForEveryone))
         assertFalse(TaskPermissions.isMine(na, taskForBin))
+    }
+
+    @Test
+    fun displayRoleRes_usesRelationLabel_notAvatarEmoji() {
+        // Mẹ đổi avatar sang bất kỳ icon nào thì nhãn vẫn giữ là Mẹ
+        val momCustomAvatar = parent.copy(relationLabel = User.RELATION_MOTHER, avatarUrl = "🧔")
+        // Bố dùng cùng avatar với Mẹ thì nhãn vẫn phân biệt rõ là Bố
+        val dadSameAvatar = dad.copy(relationLabel = User.RELATION_FATHER, avatarUrl = "🧔")
+        // Tài khoản cũ chưa có relationLabel thì hiển thị nhãn trung tính "Bố/Mẹ"
+        val legacyParent = parent.copy(relationLabel = "", avatarUrl = "🧔")
+
+        assertEquals(R.string.role_mother_short, momCustomAvatar.displayRoleRes())
+        assertEquals(R.string.role_father_short, dadSameAvatar.displayRoleRes())
+        assertEquals(R.string.role_parent, legacyParent.displayRoleRes())
+        assertEquals(R.string.role_child, bin.displayRoleRes())
+
+        assertEquals(R.string.role_mother_short, momCustomAvatar.displayRoleRes(homeStyle = true))
+        assertEquals(R.string.role_father_short, dadSameAvatar.displayRoleRes(homeStyle = true))
+        assertEquals(R.string.home_role_parent, legacyParent.displayRoleRes(homeStyle = true))
+        assertEquals(R.string.home_role_child, bin.displayRoleRes(homeStyle = true))
     }
 }

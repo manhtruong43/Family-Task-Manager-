@@ -50,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -94,7 +95,10 @@ fun TaskDetailScreen(
     val tasks by viewModel.familyTasks.collectAsState()
     val task = tasks.find { it.id == taskId }
     val currentUser by viewModel.currentUser.collectAsState()
-    val reactions by viewModel.getTaskReactions(taskId).collectAsState()
+    LaunchedEffect(taskId) {
+        viewModel.observeTaskReactions(taskId)
+    }
+    val reactions by viewModel.observedTaskReactions.collectAsState()
     val isSubmittingProof by viewModel.isSubmittingProof.collectAsState()
     val context = LocalContext.current
 

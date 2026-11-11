@@ -72,7 +72,8 @@ class TaskRepositoryTest {
         db.close()
     }
 
-    private suspend fun status(taskId: String) = db.taskDao().getTaskById(taskId)!!.status
+    private suspend fun fresh(taskId: String) = db.taskDao().getTaskById(taskId)!!
+    private suspend fun status(taskId: String) = fresh(taskId).status
     private suspend fun points(userId: String) = db.userDao().getUserByIdSync(userId)!!.points
 
     @Test
@@ -106,7 +107,7 @@ class TaskRepositoryTest {
         // Nộp lần 2 khi đang chờ duyệt -> sai trạng thái
         assertEquals(TaskActionResult.INVALID_STATE, repository.submitTaskProof(taskForBin.id, proof, "", bin))
 
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(taskForBin, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(taskForBin.id), parent))
         assertEquals(TaskStatus.COMPLETED, status(taskForBin.id))
         assertEquals(10, points(bin.id))
     }
@@ -114,19 +115,21 @@ class TaskRepositoryTest {
     @Test
     fun approveTwice_addsPointsOnlyOnce() = runBlocking<Unit> {
         repository.submitTaskProof(taskForBin.id, proof, "", bin)
+        val submitted = fresh(taskForBin.id)
 
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(taskForBin, parent))
-        assertEquals(TaskActionResult.INVALID_STATE, repository.approveTask(taskForBin, parent))
-        assertEquals(TaskActionResult.INVALID_STATE, repository.rejectTask(taskForBin, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(submitted, parent))
+        assertEquals(TaskActionResult.INVALID_STATE, repository.approveTask(submitted, parent))
+        assertEquals(TaskActionResult.INVALID_STATE, repository.rejectTask(submitted, parent))
         assertEquals(10, points(bin.id))
     }
 
     @Test
     fun onlyParentOfSameFamily_canApprove() = runBlocking<Unit> {
         repository.submitTaskProof(taskForBin.id, proof, "", bin)
+        val submitted = fresh(taskForBin.id)
 
-        assertEquals(TaskActionResult.NOT_ALLOWED, repository.approveTask(taskForBin, bin))
-        assertEquals(TaskActionResult.NOT_ALLOWED, repository.approveTask(taskForBin, otherParent))
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.approveTask(submitted, bin))
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.approveTask(submitted, otherParent))
         assertEquals(TaskStatus.PENDING_APPROVAL, status(taskForBin.id))
         assertEquals(0, points(bin.id))
     }
@@ -134,25 +137,25 @@ class TaskRepositoryTest {
     @Test
     fun reject_thenRedo_thenApprove() = runBlocking<Unit> {
         repository.submitTaskProof(taskForBin.id, proof, "", bin)
-        assertEquals(TaskActionResult.SUCCESS, repository.rejectTask(taskForBin, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.rejectTask(fresh(taskForBin.id), parent))
         assertEquals(TaskStatus.REJECTED, status(taskForBin.id))
         assertEquals(0, points(bin.id))
 
         assertEquals(TaskActionResult.SUCCESS, repository.startTask(taskForBin.id, bin))
         assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(taskForBin.id, proof, "làm lại", bin))
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(taskForBin, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(taskForBin.id), parent))
         assertEquals(10, points(bin.id))
     }
 
     @Test
     fun everyoneTask_submitterBecomesAssignee_andGetsPoints() = runBlocking<Unit> {
         assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(taskForEveryone.id, proof, "", na))
-        assertEquals(na.id, db.taskDao().getTaskById(taskForEveryone.id)!!.assignedToUserId)
+        assertEquals(na.id, fresh(taskForEveryone.id).assignedToUserId)
 
         // Bin không nộp chồng lên được nữa
         assertEquals(TaskActionResult.NOT_ALLOWED, repository.submitTaskProof(taskForEveryone.id, proof, "", bin))
 
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(taskForEveryone, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(taskForEveryone.id), parent))
         assertEquals(5, points(na.id))
         assertEquals(0, points(bin.id))
     }
@@ -177,11 +180,12 @@ class TaskRepositoryTest {
         )
         assertEquals(TaskActionResult.SUCCESS, repository.createTask(cook, parent))
         assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(cook.id, proof, "", dad))
+        val submittedCook = fresh(cook.id)
 
-        assertEquals(TaskActionResult.NOT_ALLOWED, repository.approveTask(cook, dad))
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.approveTask(submittedCook, dad))
         assertEquals(TaskStatus.PENDING_APPROVAL, status(cook.id))
 
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(cook, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(submittedCook, parent))
         assertEquals(20, points(dad.id))
     }
 
@@ -204,7 +208,7 @@ class TaskRepositoryTest {
         repository.startTask(taskForBin.id, bin)
         assertEquals(TaskActionResult.SUCCESS, edit(taskForBin.id, na.id, parent))
 
-        val edited = db.taskDao().getTaskById(taskForBin.id)!!
+        val edited = fresh(taskForBin.id)
         assertEquals(na.id, edited.assignedToUserId)
         assertEquals(TaskStatus.TODO, edited.status)
         assertEquals(15, edited.points)
@@ -223,7 +227,7 @@ class TaskRepositoryTest {
 
         repository.submitTaskProof(taskForBin.id, proof, "", bin)
         assertEquals(TaskActionResult.INVALID_STATE, edit(taskForBin.id, na.id, parent))       // đã nộp
-        assertEquals(bin.id, db.taskDao().getTaskById(taskForBin.id)!!.assignedToUserId)
+        assertEquals(bin.id, fresh(taskForBin.id).assignedToUserId)
     }
 
     @Test
@@ -243,7 +247,7 @@ class TaskRepositoryTest {
 
         // Việc đã hoàn thành: không hủy được, điểm giữ nguyên
         repository.submitTaskProof(taskForEveryone.id, proof, "", na)
-        repository.approveTask(taskForEveryone, parent)
+        repository.approveTask(fresh(taskForEveryone.id), parent)
         assertEquals(TaskActionResult.INVALID_STATE, repository.cancelTask(taskForEveryone.id, parent))
         assertEquals(5, points(na.id))
     }
@@ -254,7 +258,7 @@ class TaskRepositoryTest {
     fun everyoneTask_otherParentCanClaim_butNotTheAssigner() = runBlocking<Unit> {
         assertEquals(TaskActionResult.NOT_ALLOWED, repository.submitTaskProof(taskForEveryone.id, proof, "", parent))
         assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(taskForEveryone.id, proof, "", dad))
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(taskForEveryone, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(taskForEveryone.id), parent))
         assertEquals(5, points(dad.id))
     }
 
@@ -283,37 +287,37 @@ class TaskRepositoryTest {
         val naRoom = rooms.first { it.assignedToUserId == na.id }
         repository.submitTaskProof(binRoom.id, proof, "", bin)
         repository.submitTaskProof(naRoom.id, proof, "", na)
-        repository.rejectTask(binRoom, parent)
-        repository.approveTask(naRoom, parent)
+        repository.rejectTask(fresh(binRoom.id), parent)
+        repository.approveTask(fresh(naRoom.id), parent)
         assertEquals(20, points(na.id))
         assertEquals(0, points(bin.id))
-        assertEquals(bin.id, db.taskDao().getTaskById(binRoom.id)!!.assignedToUserId)
+        assertEquals(bin.id, fresh(binRoom.id).assignedToUserId)
     }
 
     @Test
     fun openTask_rejected_goesBackToWholeFamily() = runBlocking<Unit> {
         val dishes = Task(id = "t-dishes", title = "Rửa bát", familyId = family, createdByUserId = parent.id, points = 15)
         assertEquals(TaskActionResult.SUCCESS, repository.createTask(dishes, parent))
-        assertTrue(db.taskDao().getTaskById(dishes.id)!!.openToAll)
+        assertTrue(fresh(dishes.id).openToAll)
 
         repository.submitTaskProof(dishes.id, proof, "", na)
-        assertEquals(TaskActionResult.SUCCESS, repository.rejectTask(dishes, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.rejectTask(fresh(dishes.id), parent))
 
-        val released = db.taskDao().getTaskById(dishes.id)!!
+        val released = fresh(dishes.id)
         assertEquals(TaskStatus.REJECTED, released.status)
         assertEquals("", released.assignedToUserId)          // trả lại cả nhà
 
         // Lần này Bin làm lại và nhận điểm
         assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(dishes.id, proof, "làm lại", bin))
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(dishes, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(dishes.id), parent))
         assertEquals(15, points(bin.id))
         assertEquals(0, points(na.id))
 
         // Việc giao đích danh bị từ chối thì vẫn thuộc người đó
         repository.submitTaskProof(taskForBin.id, proof, "", bin)
-        repository.rejectTask(taskForBin, parent)
-        assertEquals(bin.id, db.taskDao().getTaskById(taskForBin.id)!!.assignedToUserId)
-        assertFalse(db.taskDao().getTaskById(taskForBin.id)!!.openToAll)
+        repository.rejectTask(fresh(taskForBin.id), parent)
+        assertEquals(bin.id, fresh(taskForBin.id).assignedToUserId)
+        assertFalse(fresh(taskForBin.id).openToAll)
     }
 
     @Test
@@ -321,7 +325,7 @@ class TaskRepositoryTest {
         val wipe = Task(id = "t-wipe", title = "Lau bàn", familyId = family, createdByUserId = parent.id, points = 5)
         repository.createTask(wipe, parent)
         repository.submitTaskProof(wipe.id, proof, "", na)
-        val seenByDad = db.taskDao().getTaskById(wipe.id)!!            // Bố mở màn duyệt bài của Na
+        val seenByDad = fresh(wipe.id)                                  // Bố mở màn duyệt bài của Na
 
         repository.rejectTask(seenByDad, parent)                        // Mẹ từ chối trước -> trả về cả nhà
         repository.submitTaskProof(wipe.id, proof, "", dad)             // Bố tự làm và nộp
@@ -330,7 +334,10 @@ class TaskRepositoryTest {
         assertEquals(TaskActionResult.NOT_ALLOWED, repository.approveTask(seenByDad, dad))
         assertEquals(TaskStatus.PENDING_APPROVAL, status(wipe.id))
         assertEquals(0, points(dad.id))
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(seenByDad, parent))
+
+        // Mẹ cũng không thể duyệt bằng màn hình cũ của Na, phải tải lại màn hình lượt nộp mới của Bố
+        assertEquals(TaskActionResult.INVALID_STATE, repository.approveTask(seenByDad, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(wipe.id), parent))
         assertEquals(5, points(dad.id))
     }
 
@@ -355,30 +362,74 @@ class TaskRepositoryTest {
             points = 10
         )
         assertEquals(TaskActionResult.SUCCESS, repository.createTask(spoofed, parent))
-        val saved = db.taskDao().getTaskById("t-spoof")!!
+        val saved = fresh("t-spoof")
         assertEquals(parent.id, saved.createdByUserId)
         assertEquals(bin.name, saved.assignedToUserName)
     }
 
     @Test
-    fun review_refusesStaleScreenWhenNewProofSubmitted() = runBlocking<Unit> {
-        val wipe = Task(id = "t-stale", title = "Lau kính", familyId = family, createdByUserId = parent.id, points = 10)
-        repository.createTask(wipe, parent)
-        repository.submitTaskProof(wipe.id, "file:///data/na_photo.jpg", "", na)
-        val staleScreen = db.taskDao().getTaskById(wipe.id)!!
+    fun review_refusesStaleScreenWhenNewProofSubmitted_evenWithSamePhotoPath() = runBlocking<Unit> {
+        // Bản chụp trước khi nộp (submissionRevision == 0) không được dùng để duyệt lượt mới
+        val preSubmitSnapshot = fresh(taskForBin.id)
+        assertEquals(0, preSubmitSnapshot.submissionRevision)
+        repository.submitTaskProof(taskForBin.id, proof, "lần 1", bin)
+        assertEquals(TaskActionResult.INVALID_STATE, repository.approveTask(preSubmitSnapshot, parent))
+        assertEquals(TaskActionResult.INVALID_STATE, repository.rejectTask(preSubmitSnapshot, parent))
 
-        // Mẹ từ chối bài của Na, sau đó Bin nộp bộ ảnh mới khác
-        repository.rejectTask(staleScreen, parent)
-        repository.submitTaskProof(wipe.id, "file:///data/bin_new_photo.jpg", "", bin)
+        // Lượt nộp 1 (submissionRevision == 1)
+        val firstSubmissionScreen = fresh(taskForBin.id)
+        assertEquals(1, firstSubmissionScreen.submissionRevision)
 
-        // Bố vẫn đang nhìn màn hình cũ của Na (staleScreen) -> chặn duyệt nhầm ảnh chưa xem
-        assertEquals(TaskActionResult.INVALID_STATE, repository.approveTask(staleScreen, dad))
-        assertEquals(TaskStatus.PENDING_APPROVAL, status(wipe.id))
+        // Mẹ từ chối, Bin nộp lại dùng CÙNG đường dẫn ảnh (submissionRevision tăng lên 2)
+        assertEquals(TaskActionResult.SUCCESS, repository.rejectTask(firstSubmissionScreen, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(taskForBin.id, proof, "lần 2 cùng đường dẫn ảnh", bin))
+        val secondSubmissionScreen = fresh(taskForBin.id)
+        assertEquals(2, secondSubmissionScreen.submissionRevision)
+
+        // Bố vẫn nhìn màn hình từ lượt nộp 1 -> bị chặn dù đường dẫn ảnh giống hệt
+        assertEquals(TaskActionResult.INVALID_STATE, repository.approveTask(firstSubmissionScreen, dad))
+        assertEquals(TaskActionResult.INVALID_STATE, repository.rejectTask(firstSubmissionScreen, dad))
+        assertEquals(TaskStatus.PENDING_APPROVAL, status(taskForBin.id))
         assertEquals(0, points(bin.id))
 
-        // Khi tải lại màn hình mới nhất của Bin -> Bố duyệt thành công
-        val freshScreen = db.taskDao().getTaskById(wipe.id)!!
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(freshScreen, dad))
+        // Khi tải lại màn hình lượt nộp 2 -> duyệt thành công
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(secondSubmissionScreen, dad))
         assertEquals(10, points(bin.id))
+    }
+
+    @Test
+    fun everyoneTask_startTask_claimsImmediately_andResetReleasesBackToFamily() = runBlocking<Unit> {
+        val trash = Task(id = "t-trash", title = "Đổ rác", familyId = family, createdByUserId = parent.id, points = 10)
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(trash, parent))
+
+        // Na bấm "Bắt đầu làm" -> nhận việc ngay lập tức
+        assertEquals(TaskActionResult.SUCCESS, repository.startTask(trash.id, na))
+        val claimedByNa = fresh(trash.id)
+        assertEquals(TaskStatus.IN_PROGRESS, claimedByNa.status)
+        assertEquals(na.id, claimedByNa.assignedToUserId)
+        assertEquals(na.name, claimedByNa.assignedToUserName)
+        assertTrue(claimedByNa.openToAll)
+
+        // Người thứ hai (Bin hoặc Bố) bấm "Bắt đầu", "Nộp" hay "Đặt lại" đều bị từ chối
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.startTask(trash.id, bin))
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.startTask(trash.id, dad))
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.submitTaskProof(trash.id, proof, "", bin))
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.resetTaskToTodo(trash.id, bin))
+
+        // Nếu Na bận và bấm đặt lại về TODO -> việc được trả lại cho cả nhà
+        assertEquals(TaskActionResult.SUCCESS, repository.resetTaskToTodo(trash.id, na))
+        val released = fresh(trash.id)
+        assertEquals(TaskStatus.TODO, released.status)
+        assertEquals("", released.assignedToUserId)
+        assertEquals("", released.assignedToUserName)
+        assertTrue(released.openToAll)
+
+        // Bây giờ Bin có thể bấm "Bắt đầu làm", nộp minh chứng và nhận điểm
+        assertEquals(TaskActionResult.SUCCESS, repository.startTask(trash.id, bin))
+        assertEquals(bin.id, fresh(trash.id).assignedToUserId)
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(trash.id, proof, "", bin))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(trash.id), parent))
+        assertEquals(10, points(bin.id))
+        assertEquals(0, points(na.id))
     }
 }
