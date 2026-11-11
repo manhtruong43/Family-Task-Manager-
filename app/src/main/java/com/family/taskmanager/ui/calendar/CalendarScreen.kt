@@ -189,11 +189,11 @@ fun CalendarScreen(
     // Lịch trình đang bật (đã lọc "Của tôi" nếu cần) -> dùng để hiện việc DỰ KIẾN của các ngày sắp tới.
     // Hôm nay và quá khứ đã có nhiệm vụ thật được sinh ra nên không hiện dự kiến nữa.
     // "Của tôi" theo cùng quy tắc với nhiệm vụ thật: giao cho mình, hoặc việc chung mà mình không phải người giao
-    val visibleSchedules = remember(schedules, onlyMine, currentUser?.id) {
+    val visibleSchedules = remember(schedules, onlyMine, currentUser, members) {
         schedules.filter { schedule ->
             schedule.isActive && (!onlyMine ||
-                    schedule.assignedToUserId == currentUser?.id ||
-                    (schedule.assignedToUserId.isBlank() && schedule.createdByUserId != currentUser?.id))
+                schedule.tasksForOccurrence(RecurringSchedule.dateOf(now), members, now)
+                    .any { TaskPermissions.isMine(currentUser, it) })
         }
     }
     val todayStart = startOfDay(System.currentTimeMillis())

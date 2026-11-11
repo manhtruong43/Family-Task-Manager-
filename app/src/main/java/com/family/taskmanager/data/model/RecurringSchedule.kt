@@ -1,5 +1,6 @@
 package com.family.taskmanager.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import java.time.Instant
@@ -12,11 +13,17 @@ enum class RepeatType {
     WEEKLY   // Hằng tuần vào các thứ được chọn
 }
 
+/** Cách giao cho Cả nhà trong mỗi kỳ; giao đích danh vẫn chỉ sinh một việc riêng. */
+enum class RecurringAssignmentMode {
+    SHARED,      // Một việc chung, người hợp lệ nhận trước sẽ làm
+    EACH_MEMBER  // Mỗi thành viên hợp lệ một việc riêng
+}
+
 /**
  * Lịch trình cố định (Chức năng 6 - Lập kế hoạch: tạo lịch trình hằng ngày/tuần cố định).
  *
  * Mỗi lịch trình là một "mẫu" nhiệm vụ. Vào mỗi ngày đến lịch, ứng dụng tự sinh
- * một Task bình thường từ mẫu này (xem RecurringScheduleRepository.generateDueTasks),
+ * một việc chung hoặc các việc riêng từ mẫu này (xem RecurringScheduleRepository.generateDueTasks),
  * nên nhiệm vụ sinh ra đi qua đúng luồng sẵn có: làm -> nộp minh chứng -> duyệt -> cộng điểm.
  */
 @Entity(tableName = "recurring_schedules")
@@ -39,7 +46,10 @@ data class RecurringSchedule(
     val createdByUserId: String,
     val createdAt: Long = System.currentTimeMillis(),
     /** Ngày gần nhất đã sinh nhiệm vụ (LocalDate.toEpochDay theo giờ máy). -1 = chưa sinh lần nào. */
-    val lastGeneratedEpochDay: Long = -1L
+    val lastGeneratedEpochDay: Long = -1L,
+    /** Chỉ áp dụng khi assignedToUserId rỗng. Lịch cũ giữ chế độ một việc chung. */
+    @ColumnInfo(defaultValue = "'SHARED'")
+    val assignmentMode: RecurringAssignmentMode = RecurringAssignmentMode.SHARED
 ) {
     /** Lịch trình có rơi vào ngày [date] không (không xét bật/tắt). */
     fun occursOn(date: LocalDate): Boolean = when (repeatType) {
@@ -56,6 +66,52 @@ data class RecurringSchedule(
 
     /** Id cố định cho nhiệm vụ sinh ra vào ngày [date] -> không bao giờ sinh trùng 2 lần. */
     fun taskIdFor(date: LocalDate): String = "rec_${id}_${date.toEpochDay()}"
+
+    /**
+     * Dựng nhiệm vụ cho một kỳ từ danh sách thành viên mới nhất.
+     * Không mang trạng thái/người đã nhận/minh chứng của kỳ trước sang.
+     * Repository gọi trong transaction để cố định thành viên, lưu cả bộ và đánh dấu kỳ nguyên tử.
+     */
+    fun tasksForOccurrence(
+        date: LocalDate,
+        members: List<User>,
+        generatedAt: Long,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): List<Task> {
+        val familyMembers = members.filter { it.familyId == familyId }.distinctBy { it.id }
+        fun hasReviewer(worker: User): Boolean = familyMembers.any {
+            it.role == UserRole.ADMIN && it.id != worker.id
+        }
+        val dedicatedAssignee = familyMembers.firstOrNull {
+            it.id == assignedToUserId && hasReviewer(it)
+        }
+        val separateForEveryone = assignedToUserId.isEmpty() &&
+            assignmentMode == RecurringAssignmentMode.EACH_MEMBER
+        val assignees: List<User?> = when {
+            assignedToUserId.isNotEmpty() -> listOf(dedicatedAssignee)
+            separateForEveryone -> familyMembers.filter {
+                it.id != createdByUserId && hasReviewer(it)
+            }
+            else -> listOf(null)
+        }
+        return assignees.map { assignee ->
+            Task(
+                id = if (separateForEveryone) "${taskIdFor(date)}_each_${assignee!!.id}" else taskIdFor(date),
+                title = title,
+                description = description,
+                familyId = familyId,
+                assignedToUserId = assignee?.id.orEmpty(),
+                assignedToUserName = assignee?.name.orEmpty(),
+                createdByUserId = createdByUserId,
+                priority = priority,
+                status = TaskStatus.TODO,
+                points = points,
+                deadlineTimestamp = dueAtMillis(date, zone),
+                createdAt = generatedAt,
+                openToAll = assignee == null
+            )
+        }
+    }
 
     /**
      * Lịch tuần đã chọn đủ 7 ngày thì coi như hằng ngày (dùng khi hiển thị).
