@@ -6,8 +6,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.family.taskmanager.data.local.AppDatabase
 import com.family.taskmanager.data.model.FamilyGroup
+import com.family.taskmanager.data.model.RecurringAssignmentMode
 import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.RepeatType
+import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
@@ -437,6 +439,115 @@ class RecurringScheduleRepositoryTest {
         val generated = familyTasks().single()
         assertEquals("", generated.assignedToUserId)
         assertTrue(generated.openToAll)
+    }
+
+    @Test
+    fun eachMemberGeneration_isAtomicAcrossConcurrentRuns_andPreservesExistingProgress() = runBlocking<Unit> {
+        val each = RecurringSchedule(
+            id = "each-parallel", familyId = family, title = "Tập thể dục",
+            createdByUserId = parent.id, assignmentMode = RecurringAssignmentMode.EACH_MEMBER
+        )
+        db.recurringScheduleDao().upsert(each)
+        val counts = (1..8).map { async(Dispatchers.IO) { repository.generateDueTasks() } }.awaitAll()
+        assertEquals(2, counts.sum())
+        val tasks = familyTasks()
+        assertEquals(setOf(dad.id, bin.id), tasks.map { it.assignedToUserId }.toSet())
+        assertTrue(tasks.none { it.openToAll })
+        assertEquals(2, tasks.map { it.id }.toSet().size)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(dad.id).first().size)
+        assertTrue(db.notificationDao().getNotificationsByUser(parent.id).first().isEmpty())
+
+        val binTask = tasks.single { it.assignedToUserId == bin.id }
+        db.taskDao().updateTask(binTask.copy(status = TaskStatus.PENDING_APPROVAL, proofImageUrl = "bin.jpg"))
+        assertEquals(0, repository.generateDueTasks())
+        assertEquals(TaskStatus.PENDING_APPROVAL, db.taskDao().getTaskById(binTask.id)!!.status)
+        assertEquals(TaskStatus.TODO, familyTasks().single { it.assignedToUserId == dad.id }.status)
+    }
+
+    @Test
+    fun modeChange_appliesOnlyToUnprocessedOccurrences_andPersistsAcrossReloads() = runBlocking<Unit> {
+        val sharedInput = input().copy(assigneeId = "")
+        assertEquals(RecurringResult.SAVED, repository.saveSchedule(parent, null, sharedInput))
+        val saved = onlySchedule()
+        val original = familyTasks().single().copy(
+            status = TaskStatus.IN_PROGRESS, assignedToUserId = bin.id, assignedToUserName = bin.name
+        )
+        db.taskDao().updateTask(original)
+        assertEquals(
+            RecurringResult.SAVED,
+            repository.saveSchedule(parent, saved.id, sharedInput.copy(assignmentMode = RecurringAssignmentMode.EACH_MEMBER))
+        )
+        assertEquals(RecurringAssignmentMode.EACH_MEMBER, onlySchedule().assignmentMode)
+        assertEquals(listOf(original), familyTasks())
+        assertEquals(0, repository.generateDueTasks())
+
+        repository.clock = clockAt(today.plusDays(1).atTime(0, 1))
+        assertEquals(2, repository.generateDueTasks())
+        val nextTasks = familyTasks().filter { it.id != original.id }
+        assertEquals(setOf(bin.id, dad.id), nextTasks.map { it.assignedToUserId }.toSet())
+        assertTrue(nextTasks.all { !it.openToAll && it.status == TaskStatus.TODO && it.proofImageUrl.isEmpty() })
+        assertEquals(original, db.taskDao().getTaskById(original.id))
+    }
+
+    @Test
+    fun eachMember_nextOccurrenceUsesCurrentMembersAndNames() = runBlocking<Unit> {
+        repository.saveSchedule(
+            parent, null, input().copy(assigneeId = "", assignmentMode = RecurringAssignmentMode.EACH_MEMBER)
+        )
+        val oldIds = familyTasks().map { it.id }.toSet()
+        val newcomer = User(id = "na-new", name = "Na", email = "na@x.com", familyId = family)
+        db.userDao().insertUser(newcomer)
+        db.userDao().updateUser(bin.copy(name = "Bin mới"))
+        db.userDao().updateUser(dad.copy(familyId = ""))
+        repository.clock = clockAt(today.plusDays(1).atTime(0, 1))
+        assertEquals(2, repository.generateDueTasks())
+        val next = familyTasks().filter { it.id !in oldIds }
+        assertEquals(setOf(bin.id, newcomer.id), next.map { it.assignedToUserId }.toSet())
+        assertEquals("Bin mới", next.single { it.assignedToUserId == bin.id }.assignedToUserName)
+        assertEquals(0, repository.generateDueTasks())
+    }
+
+    @Test
+    fun eachMember_inboxFailureRollsBackWholeOccurrence_thenRetryCreatesExactlyOneSet() = runBlocking<Unit> {
+        db.recurringScheduleDao().upsert(
+            RecurringSchedule(
+                id = "each-failure", familyId = family, title = "Đọc sách",
+                createdByUserId = parent.id, assignmentMode = RecurringAssignmentMode.EACH_MEMBER
+            )
+        )
+        db.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER fail_second_batch_inbox BEFORE INSERT ON notifications " +
+                "WHEN (SELECT COUNT(*) FROM notifications) >= 1 " +
+                "BEGIN SELECT RAISE(ABORT, 'second inbox failure'); END"
+        )
+        try {
+            repository.generateDueTasks()
+            fail("The whole occurrence must roll back")
+        } catch (_: SQLiteException) {
+            assertTrue(familyTasks().isEmpty())
+            assertEquals(-1L, onlySchedule().lastGeneratedEpochDay)
+            assertTrue(db.notificationDao().getNotificationsByUser(bin.id).first().isEmpty())
+            assertTrue(db.notificationDao().getNotificationsByUser(dad.id).first().isEmpty())
+        } finally {
+            db.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_second_batch_inbox")
+        }
+        assertEquals(2, repository.generateDueTasks())
+        assertEquals(0, repository.generateDueTasks())
+        assertEquals(2, familyTasks().size)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
+        assertEquals(1, db.notificationDao().getNotificationsByUser(dad.id).first().size)
+    }
+
+    @Test
+    fun dedicatedSchedule_ignoresEveryoneMode_andRemainsOneTask() = runBlocking<Unit> {
+        assertEquals(
+            RecurringResult.SAVED,
+            repository.saveSchedule(parent, null, input().copy(assignmentMode = RecurringAssignmentMode.EACH_MEMBER))
+        )
+        assertEquals(RecurringAssignmentMode.SHARED, onlySchedule().assignmentMode)
+        assertEquals(bin.id, familyTasks().single().assignedToUserId)
+        assertFalse(familyTasks().single().openToAll)
     }
 
     private fun rejectNotificationInserts() {

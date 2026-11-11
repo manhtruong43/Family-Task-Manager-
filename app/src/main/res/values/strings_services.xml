@@ -142,7 +142,7 @@
     <string name="rec_manage">Quản lý</string>
     <string name="rec_view">Xem</string>
     <string name="rec_sheet_title">Lịch trình cố định</string>
-    <string name="rec_sheet_hint">Mỗi ngày đến lịch, app tự tạo một nhiệm vụ (khi mở app và lúc 00:01 hằng đêm). Nhiệm vụ đó được làm, nộp minh chứng và duyệt như việc bình thường.</string>
+    <string name="rec_sheet_hint">Mỗi ngày đến lịch, app tự tạo việc theo cách giao đã chọn (khi mở app và lúc 00:01 hằng đêm). Các việc được làm, nộp minh chứng và duyệt như bình thường.</string>
     <string name="rec_add">Thêm lịch trình</string>
     <string name="rec_empty_admin">Chưa có lịch trình nào.\nVí dụ: Rửa bát hằng ngày lúc 20:00, dọn phòng thứ 7 hằng tuần.</string>
     <string name="rec_empty_member">Bố/Mẹ chưa tạo lịch trình cố định nào.</string>
@@ -161,6 +161,14 @@
     <string name="rec_field_title">Tên công việc (vd: Rửa bát)</string>
     <string name="rec_field_description">Mô tả (không bắt buộc)</string>
     <string name="rec_field_points">Điểm thưởng mỗi lần</string>
+    <string name="rec_field_assignment_mode">Cách giao cho Cả nhà</string>
+    <string name="rec_mode_shared">Một người nhận làm</string>
+    <string name="rec_mode_each">Mỗi người một việc riêng</string>
+    <string name="rec_mode_shared_hint">Mỗi kỳ tạo một việc chung. Người nhận làm sẽ nộp minh chứng và được tính điểm sau khi duyệt.</string>
+    <string name="rec_mode_each_hint">Mỗi kỳ lấy lại thành viên hợp lệ, trừ người giao. Mỗi người có việc, minh chứng và điểm riêng; phụ huynh cần người khác duyệt.</string>
+    <string name="rec_edit_future_hint">Thay đổi áp dụng cho các kỳ chưa sinh; những việc đã tạo được giữ nguyên.</string>
+    <string name="rec_everyone_shared">Cả nhà · một người nhận</string>
+    <string name="rec_everyone_each">Cả nhà · mỗi người một việc</string>
     <string name="rec_field_assignee">Giao cho</string>
     <string name="rec_field_priority">Mức ưu tiên</string>
     <string name="rec_priority_low">Thấp</string>

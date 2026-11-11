@@ -53,5 +53,12 @@ object AppMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6)
+    /** 6 -> 7: lịch cũ giữ nguyên một việc chung, không sinh thêm việc riêng ngoài ý muốn. */
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE recurring_schedules ADD COLUMN assignmentMode TEXT NOT NULL DEFAULT 'SHARED'")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }

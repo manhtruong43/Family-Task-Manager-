@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.family.taskmanager.R
+import com.family.taskmanager.data.model.RecurringAssignmentMode
 import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.RepeatType
 import com.family.taskmanager.data.model.TaskPriority
@@ -470,6 +471,9 @@ private fun RecurringEditorDialog(
     var description by rememberSaveable { mutableStateOf(initial?.description ?: "") }
     var pointsText by rememberSaveable { mutableStateOf((initial?.points ?: 10).toString()) }
     var assigneeId by rememberSaveable { mutableStateOf(initial?.assignedToUserId ?: "") }
+    var assignmentMode by rememberSaveable {
+        mutableStateOf(initial?.assignmentMode ?: RecurringAssignmentMode.SHARED)
+    }
     var priority by rememberSaveable { mutableStateOf(initial?.priority ?: TaskPriority.MEDIUM) }
     var repeatType by rememberSaveable { mutableStateOf(initial?.repeatType ?: RepeatType.DAILY) }
     var daysMask by rememberSaveable { mutableIntStateOf(initial?.daysOfWeekMask ?: 0) }
@@ -550,6 +554,43 @@ private fun RecurringEditorDialog(
                             colors = recChipColors()
                         )
                     }
+                }
+
+                if (assigneeId.isEmpty()) {
+                    SectionLabel(stringResource(R.string.rec_field_assignment_mode))
+                    RecurringAssignmentMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = assignmentMode == mode,
+                            onClick = { assignmentMode = mode },
+                            label = {
+                                Text(
+                                    stringResource(
+                                        if (mode == RecurringAssignmentMode.SHARED) R.string.rec_mode_shared
+                                        else R.string.rec_mode_each
+                                    ),
+                                    maxLines = 2
+                                )
+                            },
+                            colors = recChipColors(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Text(
+                        stringResource(
+                            if (assignmentMode == RecurringAssignmentMode.SHARED) R.string.rec_mode_shared_hint
+                            else R.string.rec_mode_each_hint
+                        ),
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 12.sp
+                    )
+                }
+                if (initial != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.rec_edit_future_hint),
+                        color = RecAccent,
+                        fontSize = 12.sp
+                    )
                 }
 
                 // Mức ưu tiên
@@ -636,7 +677,8 @@ private fun RecurringEditorDialog(
                             points = points ?: 0,
                             repeatType = repeatType,
                             daysOfWeekMask = daysMask,
-                            dueMinuteOfDay = dueMinute
+                            dueMinuteOfDay = dueMinute,
+                            assignmentMode = assignmentMode
                         )
                     )
                 },
@@ -701,8 +743,11 @@ fun repeatDescription(schedule: RecurringSchedule): String {
 
 @Composable
 private fun assigneeLabel(schedule: RecurringSchedule): String =
-    if (schedule.assignedToUserId.isBlank()) stringResource(R.string.rec_everyone)
-    else schedule.assignedToUserName
+    when {
+        schedule.assignedToUserId.isNotBlank() -> schedule.assignedToUserName
+        schedule.assignmentMode == RecurringAssignmentMode.EACH_MEMBER -> stringResource(R.string.rec_everyone_each)
+        else -> stringResource(R.string.rec_everyone_shared)
+    }
 
 private fun priorityColor(priority: TaskPriority): Color = when (priority) {
     TaskPriority.HIGH -> RecRed

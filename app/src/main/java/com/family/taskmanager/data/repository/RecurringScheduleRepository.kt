@@ -8,11 +8,11 @@ import com.family.taskmanager.R
 import com.family.taskmanager.data.local.AppDatabase
 import com.family.taskmanager.data.local.RecurringScheduleDao
 import com.family.taskmanager.data.model.NotificationItem
+import com.family.taskmanager.data.model.RecurringAssignmentMode
 import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.RepeatType
 import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskPriority
-import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.service.ServiceLocale
@@ -44,7 +44,8 @@ data class RecurringScheduleInput(
     val points: Int,
     val repeatType: RepeatType,
     val daysOfWeekMask: Int,
-    val dueMinuteOfDay: Int
+    val dueMinuteOfDay: Int,
+    val assignmentMode: RecurringAssignmentMode = RecurringAssignmentMode.SHARED
 )
 
 /**
@@ -52,7 +53,7 @@ data class RecurringScheduleInput(
  *
  * - Chỉ Admin (Bố/Mẹ) cùng gia đình mới được tạo / sửa / tạm dừng / xóa lịch trình.
  * - generateDueTasks(): với mỗi lịch trình đang bật rơi vào hôm nay mà chưa sinh,
- *   tạo 1 Task bình thường (id cố định theo ngày nên không bao giờ trùng),
+ *   tạo một việc chung hoặc một việc riêng cho từng người hợp lệ (id cố định theo kỳ/người),
  *   rồi báo cho người được giao. Được gọi khi mở app và lúc 00:01 mỗi đêm.
  * - Chỉ sinh cho HÔM NAY, không sinh bù những ngày điện thoại không mở app.
  */
@@ -122,7 +123,8 @@ class RecurringScheduleRepository @Inject constructor(
                 isActive = existing?.isActive ?: true,
                 createdByUserId = existing?.createdByUserId ?: freshActor.id,
                 createdAt = existing?.createdAt ?: nowMillis(),
-                lastGeneratedEpochDay = existing?.lastGeneratedEpochDay ?: -1L
+                lastGeneratedEpochDay = existing?.lastGeneratedEpochDay ?: -1L,
+                assignmentMode = if (assignee == null) input.assignmentMode else RecurringAssignmentMode.SHARED
             )
             dao.upsert(skipTodayIfAlreadyPastDue(draft))
             RecurringResult.SAVED
@@ -214,52 +216,30 @@ class RecurringScheduleRepository @Inject constructor(
         val createdTasks = mutableListOf<GenerationResult>()
 
         dao.getActiveSchedules().forEach { candidate ->
-            val created = database.withTransaction<GenerationResult?> {
-                val schedule = dao.getById(candidate.id) ?: return@withTransaction null
-                if (!schedule.isActive) return@withTransaction null
-                if (schedule.lastGeneratedEpochDay >= todayEpoch) return@withTransaction null
-                if (!schedule.occursOn(today)) return@withTransaction null
+            val created = database.withTransaction {
+                val schedule = dao.getById(candidate.id) ?: return@withTransaction emptyList<GenerationResult>()
+                if (!schedule.isActive) return@withTransaction emptyList()
+                if (schedule.lastGeneratedEpochDay >= todayEpoch) return@withTransaction emptyList()
+                if (!schedule.occursOn(today)) return@withTransaction emptyList()
 
                 if (dao.countFamily(schedule.familyId) == 0) {
                     dao.upsert(schedule.copy(isActive = false))
-                    return@withTransaction null
+                    return@withTransaction emptyList()
                 }
 
-                val assigneeStillInFamily = schedule.assignedToUserId.isBlank() ||
-                        dao.countUserInFamily(schedule.assignedToUserId, schedule.familyId) > 0
-                val adminIds = dao.getUserIdsByRole(schedule.familyId, UserRole.ADMIN)
-                val assigneeHasReviewer = schedule.assignedToUserId.isBlank() ||
-                        schedule.assignedToUserId !in adminIds ||
-                        adminIds.any { it != schedule.assignedToUserId }
-                val effective = if (assigneeStillInFamily && assigneeHasReviewer) schedule
-                else schedule.copy(assignedToUserId = "", assignedToUserName = "")
-
-                val task = Task(
-                    id = schedule.taskIdFor(today),
-                    title = schedule.title,
-                    description = schedule.description,
-                    familyId = schedule.familyId,
-                    assignedToUserId = effective.assignedToUserId,
-                    assignedToUserName = effective.assignedToUserName,
-                    createdByUserId = schedule.createdByUserId,
-                    priority = schedule.priority,
-                    status = TaskStatus.TODO,
-                    points = schedule.points,
-                    deadlineTimestamp = schedule.dueAtMillis(today, zone),
-                    createdAt = now,
-                    openToAll = effective.assignedToUserId.isEmpty()
-                )
-                val rowId = dao.insertTaskIfAbsent(task)
-                if (rowId == -1L) {
-                    dao.markGenerated(schedule.id, todayEpoch)
-                    null
-                } else {
-                    val notification = persistAssigneeNotifications(effective, task)
-                    dao.markGenerated(schedule.id, todayEpoch)
-                    GenerationResult(notification)
+                // Chốt danh sách người nhận mới nhất trong cùng transaction với cả bộ nhiệm vụ.
+                // Cả nhà: mỗi kỳ lấy lại thành viên; không giao cho người tạo hoặc người không có người duyệt.
+                val members = database.userDao().getUsersByFamilySync(schedule.familyId)
+                val generated = schedule.tasksForOccurrence(today, members, now, zone).mapNotNull { task ->
+                    if (dao.insertTaskIfAbsent(task) == -1L) null
+                    else GenerationResult(persistAssigneeNotifications(schedule, task))
                 }
+                // Kể cả không có người hợp lệ hoặc các ID đã tồn tại, kỳ này vẫn đã được xử lý.
+                // Đổi chế độ/sửa lịch sau đó chỉ ảnh hưởng kỳ chưa sinh, không thêm lại bộ việc hôm nay.
+                dao.markGenerated(schedule.id, todayEpoch)
+                generated
             }
-            if (created != null) createdTasks += created
+            createdTasks += created
         }
 
         createdTasks.mapNotNull { it.notification }.forEach { notification ->

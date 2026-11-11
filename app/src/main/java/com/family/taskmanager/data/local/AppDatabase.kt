@@ -22,7 +22,7 @@ import com.family.taskmanager.data.model.User
         TaskReaction::class,
         RecurringSchedule::class // Lịch trình cố định (Chức năng 6 - Dũng)
     ],
-    version = 6, // 3->4: recurring_schedules; 4->5: tasks.openToAll; 5->6: users.relationLabel + tasks.submissionRevision
+    version = 7, // 6->7: recurring_schedules.assignmentMode (giữ nguyên dữ liệu và các kỳ đã sinh)
     // Xuất schema ra app/schemas/ (cấu hình trong app/build.gradle.kts) để viết và kiểm tra migration
     exportSchema = true
 )
