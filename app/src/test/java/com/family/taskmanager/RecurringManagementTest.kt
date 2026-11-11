@@ -34,12 +34,15 @@ class RecurringManagementTest {
         assertTrue(direct.canBeManagedBy(mom, members))
     }
 
-    @Test fun recipientStatus_usesCurrentMembers_andReviewerEligibility() {
-        // Mẹ đã rời: Bố không thể nhận việc riêng vì không có người duyệt, nên không bị coi là người nhận.
-        assertTrue(each.canBeManagedBy(dad, listOf(dad, na)))
-        // Khi có phụ huynh khác vào, Bố lại là người nhận thực sự và phải bị chặn quản lý.
-        val other = mom.copy(id = "other")
-        assertFalse(each.canBeManagedBy(dad, listOf(dad, na, other)))
+    @Test fun recoveredManager_staysManagerWhenAnotherParentJoins() {
+        val recovered = each.withCurrentManager(listOf(dad, na))
+        assertEquals(dad.id, recovered.createdByUserId)
+        assertTrue(recovered.canBeManagedBy(dad, listOf(dad, na)))
+        val other = mom.copy(id = "aaa-other")
+        val afterJoin = listOf(dad, na, other)
+        assertEquals(recovered, recovered.withCurrentManager(afterJoin))
+        assertTrue(recovered.canBeManagedBy(dad, afterJoin))
+        assertFalse(recovered.canBeManagedBy(other, afterJoin))
     }
 
     @Test fun missingChildOrForeignActor_cannotManage() {

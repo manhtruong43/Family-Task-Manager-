@@ -19,6 +19,9 @@ interface RecurringScheduleDao {
     )
     fun observeByFamily(familyId: String): Flow<List<RecurringSchedule>>
 
+    @Query("SELECT * FROM recurring_schedules WHERE familyId = :familyId")
+    suspend fun getByFamilyOnce(familyId: String): List<RecurringSchedule>
+
     @Query("SELECT * FROM recurring_schedules WHERE isActive = 1")
     suspend fun getActiveSchedules(): List<RecurringSchedule>
 
