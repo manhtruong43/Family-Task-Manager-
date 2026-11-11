@@ -189,6 +189,7 @@ fun HomeScreen(
                         userName = currentUser?.name ?: "",
                         userAvatar = currentUser?.avatarUrl ?: "🧔",
                         role = currentUser?.role ?: UserRole.MEMBER,
+                        roleLabelRes = currentUser?.displayRoleRes(homeStyle = true) ?: R.string.home_role_child,
                         familyName = familyGroup?.name ?: defaultFamilyName,
                         inviteCode = familyGroup?.inviteCode ?: "",
                         points = currentUser?.points ?: 0,
@@ -509,14 +510,7 @@ fun GlassFamilyMembersSection(
                                 maxLines = 1
                             )
                             Text(
-                                text = stringResource(
-                                    when {
-                                        member.role != UserRole.ADMIN -> R.string.home_role_child
-                                        member.avatarUrl == "🧔" -> R.string.role_father_short
-                                        member.avatarUrl == "👩" -> R.string.role_mother_short
-                                        else -> R.string.home_role_parent
-                                    }
-                                ),
+                                text = stringResource(member.displayRoleRes(homeStyle = true)),
                                 fontSize = 10.sp,
                                 color = if (member.role == UserRole.ADMIN) AccentBlue else AccentGreen
                             )
@@ -659,6 +653,7 @@ fun GlassHeaderSection(
     userName: String,
     userAvatar: String,
     role: UserRole,
+    roleLabelRes: Int = if (role == UserRole.ADMIN) R.string.home_role_parent else R.string.home_role_child,
     familyName: String,
     inviteCode: String,
     points: Int,
@@ -699,17 +694,11 @@ fun GlassHeaderSection(
                             fontSize = 18.sp,
                             color = Color.White
                         )
-                        val greetingRoleLabel = when {
-                            role == UserRole.MEMBER -> stringResource(R.string.home_role_child)
-                            userAvatar == "🧔" -> stringResource(R.string.role_father_short)
-                            userAvatar == "👩" -> stringResource(R.string.role_mother_short)
-                            else -> stringResource(R.string.home_role_parent)
-                        }
                         Text(
                             text = stringResource(
                                 R.string.home_greeting,
                                 userName,
-                                greetingRoleLabel
+                                stringResource(roleLabelRes)
                             ),
                             fontSize = 12.sp,
                             color = Color.White.copy(alpha = 0.8f)

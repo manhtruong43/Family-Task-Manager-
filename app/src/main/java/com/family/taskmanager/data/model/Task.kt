@@ -32,11 +32,17 @@ data class Task(
     val proofNote: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     /**
-     * Việc "ai làm cũng được" (giao cho cả nhà). Khi có người nộp, assignedToUserId được gán
-     * cho người đó; cờ này giúp app nhớ việc vốn là việc chung để trả lại cho cả nhà khi bị từ chối.
+     * Việc "ai làm cũng được" (giao cho cả nhà). Khi có người nhận/nộp, assignedToUserId được gán
+     * cho người đó; cờ này giúp app nhớ việc vốn là việc chung để trả lại cho cả nhà khi bị từ chối hoặc trả việc.
      * Thêm ở phiên bản DB 5 (MIGRATION_4_5).
      */
-    val openToAll: Boolean = false
+    val openToAll: Boolean = false,
+    /**
+     * Phiên bản lượt nộp minh chứng (tăng thêm 1 sau mỗi lần nộp thành công).
+     * Dùng để kiểm tra màn hình duyệt có đang nhìn đúng lượt nộp hiện tại trong DB hay không.
+     * Thêm ở phiên bản DB 6 (MIGRATION_5_6).
+     */
+    val submissionRevision: Int = 0
 ) {
     fun getProofImageList(): List<String> {
         if (proofImageUrl.isBlank()) return emptyList()

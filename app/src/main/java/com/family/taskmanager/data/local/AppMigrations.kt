@@ -39,5 +39,19 @@ object AppMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_4_5)
+    /**
+     * 5 -> 6:
+     * - Thêm cột relationLabel cho bảng users (nhãn Bố/Mẹ độc lập với avatar).
+     * - Thêm cột submissionRevision cho bảng tasks (đếm phiên bản từng lượt nộp minh chứng).
+     *   Các nhiệm vụ cũ đang ở trạng thái chờ duyệt (PENDING_APPROVAL) được đặt submissionRevision = 1.
+     */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE users ADD COLUMN relationLabel TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE tasks ADD COLUMN submissionRevision INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE tasks SET submissionRevision = 1 WHERE status = 'PENDING_APPROVAL' AND submissionRevision = 0")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6)
 }

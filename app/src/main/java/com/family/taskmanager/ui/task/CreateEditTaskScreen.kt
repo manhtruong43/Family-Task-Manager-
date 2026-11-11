@@ -520,11 +520,4 @@ private fun AssignModeOption(
 }
 
 @Composable
-private fun roleLabel(user: User): String = stringResource(
-    when {
-        user.role != UserRole.ADMIN -> R.string.role_child
-        user.avatarUrl == "🧔" -> R.string.role_father_short
-        user.avatarUrl == "👩" -> R.string.role_mother_short
-        else -> R.string.role_parent
-    }
-)
+private fun roleLabel(user: User): String = stringResource(user.displayRoleRes())

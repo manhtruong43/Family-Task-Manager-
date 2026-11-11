@@ -124,7 +124,13 @@ class LoginViewModel @Inject constructor(
      * - Họ tên ít nhất 2 ký tự, Email đúng định dạng và chưa được dùng.
      * - Sinh mã OTP mô phỏng và gửi thông báo.
      */
-    fun register(name: String, email: String, role: UserRole, avatarUrl: String) {
+    fun register(
+        name: String,
+        email: String,
+        role: UserRole,
+        avatarUrl: String,
+        relationLabel: String = ""
+    ) {
         val cleanName = name.trim()
         val cleanEmail = email.lowercase().trim()
 
@@ -150,7 +156,8 @@ class LoginViewModel @Inject constructor(
                 email = cleanEmail,
                 role = role,
                 avatarUrl = avatarUrl,
-                isEmailVerified = false
+                isEmailVerified = false,
+                relationLabel = relationLabel
             )
 
             val otpCode = emailVerificationService.sendVerificationOtp(cleanEmail)
