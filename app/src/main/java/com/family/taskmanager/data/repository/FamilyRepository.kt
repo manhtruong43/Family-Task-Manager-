@@ -90,14 +90,18 @@ class FamilyRepository @Inject constructor(
         val cleanCode = inviteCode.filter { it.isDigit() }
         if (cleanCode.length != INVITE_CODE_LENGTH) return FamilyResult.Failure(FamilyError.INVALID_CODE)
 
-        val user = familyDao.getUserById(sessionUser.id) ?: sessionUser
-        if (user.familyId.isNotBlank()) return FamilyResult.Failure(FamilyError.ALREADY_IN_FAMILY)
+        return database.withTransaction {
+            val user = familyDao.getUserById(sessionUser.id) ?: sessionUser
+            if (user.familyId.isNotBlank()) return@withTransaction FamilyResult.Failure(FamilyError.ALREADY_IN_FAMILY)
+            val family = familyDao.getFamilyByInviteCode(cleanCode)
+                ?: return@withTransaction FamilyResult.Failure(FamilyError.CODE_NOT_FOUND)
 
-        val family = familyDao.getFamilyByInviteCode(cleanCode)
-            ?: return FamilyResult.Failure(FamilyError.CODE_NOT_FOUND)
-
-        userDao.insertUser(user.copy(familyId = family.id))
-        return FamilyResult.Success(family)
+            // Chốt người quản lý của lịch cũ trước khi thành viên mới thay đổi tập người nhận.
+            reconcileScheduleManagers(family.id)
+            userDao.insertUser(user.copy(familyId = family.id))
+            reconcileScheduleManagers(family.id)
+            FamilyResult.Success(family)
+        }
     }
 
     /** Admin tạo mã mời mới (mã cũ hết hiệu lực ngay lập tức). */
@@ -135,59 +139,44 @@ class FamilyRepository @Inject constructor(
      * - Bố/Mẹ cuối cùng: chỉ được rời khi là người duy nhất còn trong nhóm
      *   (khi đó nhóm bị giải tán và toàn bộ dữ liệu nhóm bị xóa).
      */
-    suspend fun leaveFamily(userId: String): FamilyResult<Unit> {
-        val user = familyDao.getUserById(userId) ?: return FamilyResult.Failure(FamilyError.USER_NOT_FOUND)
+    suspend fun leaveFamily(userId: String): FamilyResult<Unit> = database.withTransaction {
+        val user = familyDao.getUserById(userId)
+            ?: return@withTransaction FamilyResult.Failure(FamilyError.USER_NOT_FOUND)
         val familyId = user.familyId
-        if (familyId.isBlank()) return FamilyResult.Success(Unit)
-
+        if (familyId.isBlank()) return@withTransaction FamilyResult.Success(Unit)
         if (user.role != UserRole.ADMIN) {
-            detachMember(familyId, user.id)
-            return FamilyResult.Success(Unit)
+            detachMemberInTransaction(familyId, user.id)
+            return@withTransaction FamilyResult.Success(Unit)
         }
 
-        var result: FamilyResult<Unit> = FamilyResult.Success(Unit)
-        // Đọc + kiểm tra + ghi trong cùng 1 transaction: hai Bố/Mẹ bấm "Rời nhóm" cùng lúc
-        // thì người sau sẽ thấy mình là Bố/Mẹ cuối cùng, nhóm không bao giờ bị bỏ trống quản lý.
-        database.withTransaction {
-            val otherParent = familyDao.getOtherParent(familyId, user.id)
-            val otherParentCount = familyDao.countOtherParents(familyId, user.id)
-            when {
-                otherParent != null &&
-                    (otherParentCount > 1 || familyDao.countUnfinishedTasksOfUser(familyId, otherParent.id) == 0) -> {
-                    detachMemberInTransaction(familyId, user.id)
-                    if (otherParentCount == 1) {
-                        // Phụ huynh còn lại trở thành phụ huynh duy nhất -> chuyển lịch lặp đang giao cho họ về việc chung
-                        // để các kỳ tiếp theo không sinh ra việc bị kẹt không ai duyệt.
-                        familyDao.releaseSchedules(familyId, otherParent.id)
-                    }
-                    val family = familyDao.getFamilyByIdOnce(familyId)
-                    if (family != null && family.adminId == user.id) {
-                        familyDao.updateFamilyOwner(familyId, otherParent.id)
-                    }
+        val otherParent = familyDao.getOtherParent(familyId, user.id)
+        val otherParentCount = familyDao.countOtherParents(familyId, user.id)
+        when {
+            otherParent != null &&
+                (otherParentCount > 1 || familyDao.countUnfinishedTasksOfUser(familyId, otherParent.id) == 0) -> {
+                // Rời nhóm, giải phóng lịch không có người duyệt và chuyển quản lý trong cùng transaction.
+                detachMemberInTransaction(
+                    familyId, user.id, if (otherParentCount == 1) otherParent.id else null
+                )
+                val family = familyDao.getFamilyByIdOnce(familyId)
+                if (family != null && family.adminId == user.id) {
+                    familyDao.updateFamilyOwner(familyId, otherParent.id)
                 }
-                otherParent != null -> {
-                    // Phụ huynh còn lại là Bố/Mẹ duy nhất và đang có việc chưa hoàn thành cần người duyệt/quản lý:
-                    // chặn rời nhóm để không làm việc của họ bị kẹt hoặc mất minh chứng.
-                    result = FamilyResult.Failure(FamilyError.ADMIN_MUST_STAY)
-                }
-                familyDao.countMembers(familyId) > 1 -> {
-                    result = FamilyResult.Failure(FamilyError.ADMIN_MUST_STAY)
-                }
-                else -> {
-                    // Giải tán nhóm: xóa toàn bộ dữ liệu của nhóm (kể cả lịch trình cố định,
-                    // để bộ sinh việc không tiếp tục tạo nhiệm vụ cho một nhóm không còn tồn tại)
-                    familyDao.clearUserFamily(user.id)
-                    familyDao.deleteSchedulesOfFamily(familyId)
-                    familyDao.deleteReactionsOfFamily(familyId)
-                    familyDao.deleteTasksOfFamily(familyId)
-                    familyDao.deleteRedemptionsOfFamily(familyId)
-                    familyDao.deleteRewardsOfFamily(familyId)
-                    familyDao.deleteFamily(familyId)
-                }
+                FamilyResult.Success(Unit)
             }
-            Unit
+            otherParent != null || familyDao.countMembers(familyId) > 1 ->
+                FamilyResult.Failure(FamilyError.ADMIN_MUST_STAY)
+            else -> {
+                familyDao.clearUserFamily(user.id)
+                familyDao.deleteSchedulesOfFamily(familyId)
+                familyDao.deleteReactionsOfFamily(familyId)
+                familyDao.deleteTasksOfFamily(familyId)
+                familyDao.deleteRedemptionsOfFamily(familyId)
+                familyDao.deleteRewardsOfFamily(familyId)
+                familyDao.deleteFamily(familyId)
+                FamilyResult.Success(Unit)
+            }
         }
-        return result
     }
 
     /**
@@ -199,10 +188,26 @@ class FamilyRepository @Inject constructor(
     }
 
     /** Các bước tách thành viên - chỉ gọi khi ĐANG ở trong một transaction. */
-    private suspend fun detachMemberInTransaction(familyId: String, memberId: String) {
+    private suspend fun detachMemberInTransaction(
+        familyId: String,
+        memberId: String,
+        remainingSoleParentId: String? = null
+    ) {
         familyDao.clearUserFamily(memberId)
         familyDao.releaseUnfinishedTasks(familyId, memberId)
         familyDao.releaseSchedules(familyId, memberId)
+        if (remainingSoleParentId != null) familyDao.releaseSchedules(familyId, remainingSoleParentId)
+        reconcileScheduleManagers(familyId)
+    }
+
+    /** Chỉ gọi trong transaction thay đổi thành viên; giữ marker và không đụng các nhiệm vụ đã sinh. */
+    private suspend fun reconcileScheduleManagers(familyId: String) {
+        val members = userDao.getUsersByFamilySync(familyId)
+        val schedules = database.recurringScheduleDao()
+        schedules.getByFamilyOnce(familyId).forEach { stored ->
+            val repaired = stored.withCurrentManager(members)
+            if (repaired != stored) schedules.upsert(repaired)
+        }
     }
 
     /** Sinh mã 6 chữ số ngẫu nhiên (SecureRandom) và đảm bảo không trùng với nhóm khác. */

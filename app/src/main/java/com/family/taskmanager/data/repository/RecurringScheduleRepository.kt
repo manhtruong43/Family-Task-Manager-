@@ -91,12 +91,14 @@ class RecurringScheduleRepository @Inject constructor(
             val mask = input.daysOfWeekMask and RecurringSchedule.ALL_DAYS_MASK
             if (input.repeatType == RepeatType.WEEKLY && mask == 0) return@withTransaction RecurringResult.NO_DAYS
 
-            val existing = editingId?.let { dao.getById(it) }
-            if (editingId != null && (existing == null || existing.familyId != freshActor.familyId)) {
+            val stored = editingId?.let { dao.getById(it) }
+            if (editingId != null && (stored == null || stored.familyId != freshActor.familyId)) {
                 return@withTransaction RecurringResult.NOT_FOUND
             }
-            // Người được giao không tự sửa, bật/tắt hoặc xóa lịch trình của mình.
-            if (existing != null && !canManageSchedule(freshActor, existing)) {
+            val members = database.userDao().getUsersByFamilySync(freshActor.familyId)
+            val existing = stored?.withCurrentManager(members)
+            // Kiểm tra lịch cũ trước: người nhận không được đổi chế độ để thoát hạn chế.
+            if (existing != null && !existing.canBeManagedBy(freshActor, members)) {
                 return@withTransaction RecurringResult.INVALID_ASSIGNEE
             }
 
@@ -128,7 +130,12 @@ class RecurringScheduleRepository @Inject constructor(
                 lastGeneratedEpochDay = existing?.lastGeneratedEpochDay ?: -1L,
                 assignmentMode = if (assignee == null) input.assignmentMode else RecurringAssignmentMode.SHARED
             )
-            dao.upsert(skipTodayIfAlreadyPastDue(draft))
+            val proposed = draft.withCurrentManager(members)
+            // Đồng thời kiểm tra kết quả sau sửa: không biến người đang sửa thành người nhận bị hạn chế.
+            if (!proposed.canBeManagedBy(freshActor, members)) {
+                return@withTransaction RecurringResult.INVALID_ASSIGNEE
+            }
+            dao.upsert(skipTodayIfAlreadyPastDue(proposed))
             RecurringResult.SAVED
         }
         // Sinh nhiệm vụ và gửi thông báo sau khi transaction lưu lịch đã hoàn tất.
@@ -139,11 +146,13 @@ class RecurringScheduleRepository @Inject constructor(
     suspend fun setActive(actor: User, scheduleId: String, active: Boolean): RecurringResult {
         val result = database.withTransaction {
             val freshActor = freshManager(actor) ?: return@withTransaction RecurringResult.NOT_ALLOWED
-            val schedule = dao.getById(scheduleId)
-            if (schedule == null || schedule.familyId != freshActor.familyId) {
+            val stored = dao.getById(scheduleId)
+            if (stored == null || stored.familyId != freshActor.familyId) {
                 return@withTransaction RecurringResult.NOT_FOUND
             }
-            if (!canManageSchedule(freshActor, schedule)) return@withTransaction RecurringResult.INVALID_ASSIGNEE
+            val members = database.userDao().getUsersByFamilySync(freshActor.familyId)
+            val schedule = stored.withCurrentManager(members)
+            if (!schedule.canBeManagedBy(freshActor, members)) return@withTransaction RecurringResult.INVALID_ASSIGNEE
 
             val updated = schedule.copy(isActive = active)
             dao.upsert(if (active) skipTodayIfAlreadyPastDue(updated) else updated)
@@ -157,19 +166,17 @@ class RecurringScheduleRepository @Inject constructor(
     suspend fun deleteSchedule(actor: User, scheduleId: String): RecurringResult =
         database.withTransaction {
             val freshActor = freshManager(actor) ?: return@withTransaction RecurringResult.NOT_ALLOWED
-            val schedule = dao.getById(scheduleId)
-            if (schedule == null || schedule.familyId != freshActor.familyId) {
+            val stored = dao.getById(scheduleId)
+            if (stored == null || stored.familyId != freshActor.familyId) {
                 return@withTransaction RecurringResult.NOT_FOUND
             }
-            if (!canManageSchedule(freshActor, schedule)) return@withTransaction RecurringResult.INVALID_ASSIGNEE
+            val members = database.userDao().getUsersByFamilySync(freshActor.familyId)
+            val schedule = stored.withCurrentManager(members)
+            if (!schedule.canBeManagedBy(freshActor, members)) return@withTransaction RecurringResult.INVALID_ASSIGNEE
 
             dao.deleteById(scheduleId)
             RecurringResult.DELETED
         }
-
-    /** Chỉ gọi trong transaction để quyền và danh sách người thực sự nhận việc không bị lệch lúc ghi. */
-    private suspend fun canManageSchedule(actor: User, schedule: RecurringSchedule): Boolean =
-        schedule.canBeManagedBy(actor, database.userDao().getUsersByFamilySync(schedule.familyId))
 
     /** Chỉ gọi trong transaction quản lý lịch; phiên trên UI có thể đã cũ. */
     private suspend fun freshManager(actor: User): User? {
@@ -223,7 +230,11 @@ class RecurringScheduleRepository @Inject constructor(
 
         dao.getActiveSchedules().forEach { candidate ->
             val created = database.withTransaction {
-                val schedule = dao.getById(candidate.id) ?: return@withTransaction emptyList<GenerationResult>()
+                val stored = dao.getById(candidate.id) ?: return@withTransaction emptyList<GenerationResult>()
+                val members = database.userDao().getUsersByFamilySync(stored.familyId)
+                val schedule = stored.withCurrentManager(members)
+                // Sửa lịch mồ côi trước cả kiểm tra kỳ đã sinh, giữ nguyên marker và các Task cũ.
+                if (schedule != stored) dao.upsert(schedule)
                 if (!schedule.isActive) return@withTransaction emptyList()
                 if (schedule.lastGeneratedEpochDay >= todayEpoch) return@withTransaction emptyList()
                 if (!schedule.occursOn(today)) return@withTransaction emptyList()
@@ -235,7 +246,6 @@ class RecurringScheduleRepository @Inject constructor(
 
                 // Chốt danh sách người nhận mới nhất trong cùng transaction với cả bộ nhiệm vụ.
                 // Cả nhà: mỗi kỳ lấy lại thành viên; không giao cho người tạo hoặc người không có người duyệt.
-                val members = database.userDao().getUsersByFamilySync(schedule.familyId)
                 val generated = schedule.tasksForOccurrence(today, members, now, zone).mapNotNull { task ->
                     if (dao.insertTaskIfAbsent(task) == -1L) null
                     else GenerationResult(persistAssigneeNotifications(schedule, task))

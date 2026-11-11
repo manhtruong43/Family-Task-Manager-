@@ -91,13 +91,31 @@ class RecurringManagementRepositoryTest {
         assertEquals(RecurringResult.DELETED, repository.deleteSchedule(dad, each.id))
     }
 
+    @Test fun transitionsIntoEachMember_cannotMakeEditorARestrictedRecipient() = runBlocking<Unit> {
+        for (assignee in listOf("", na.id)) {
+            val original = each.copy(
+                assignmentMode = RecurringAssignmentMode.SHARED,
+                assignedToUserId = assignee, assignedToUserName = if (assignee.isEmpty()) "" else na.name
+            )
+            db.recurringScheduleDao().upsert(original)
+            assertTrue(original.canBeManagedBy(dad, listOf(mom, dad, na)))
+            assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.saveSchedule(dad, each.id, input))
+            assertEquals(original, db.recurringScheduleDao().getById(each.id))
+            assertEquals(RecurringResult.SAVED, repository.saveSchedule(mom, each.id, input))
+            assertEquals(RecurringAssignmentMode.EACH_MEMBER, db.recurringScheduleDao().getById(each.id)!!.assignmentMode)
+        }
+    }
+
     @Test fun management_resolvesCurrentMembershipInsideTransaction() = runBlocking<Unit> {
         assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.setActive(dad, each.id, false))
         db.userDao().updateUser(mom.copy(familyId = "")) // Bố không còn người duyệt nên không thuộc tập người nhận.
         assertEquals(RecurringResult.PAUSED, repository.setActive(dad, each.id, false))
         db.userDao().insertUser(mom.copy(id = "other", email = "other@example.test"))
-        // Snapshot dad không đổi, nhưng dữ liệu hiện tại lại khiến Bố trở thành người nhận.
-        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.deleteSchedule(dad, each.id))
-        assertNotNull(db.recurringScheduleDao().getById(each.id))
+        val other = db.userDao().getUserByIdSync("other")!!
+        // Lịch đã được khôi phục cho Bố: thành viên mới không được làm Bố mất quyền hoặc tự sửa thưởng của họ.
+        assertEquals(dad.id, db.recurringScheduleDao().getById(each.id)!!.createdByUserId)
+        assertEquals(RecurringResult.INVALID_ASSIGNEE, repository.setActive(other, each.id, true))
+        assertEquals(RecurringResult.DELETED, repository.deleteSchedule(dad, each.id))
+        assertNull(db.recurringScheduleDao().getById(each.id))
     }
 }

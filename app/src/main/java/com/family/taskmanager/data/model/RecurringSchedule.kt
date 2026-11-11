@@ -43,6 +43,7 @@ data class RecurringSchedule(
     /** Giờ hết hạn trong ngày, tính bằng phút kể từ 00:00 (vd 20:00 = 1200). */
     val dueMinuteOfDay: Int = DEFAULT_DUE_MINUTE,
     val isActive: Boolean = true,
+    /** Người giao/quản lý hiện tại; chuyển khi rời nhóm, không đổi các Task đã sinh. */
     val createdByUserId: String,
     val createdAt: Long = System.currentTimeMillis(),
     /** Ngày gần nhất đã sinh nhiệm vụ (LocalDate.toEpochDay theo giờ máy). -1 = chưa sinh lần nào. */
@@ -78,9 +79,10 @@ data class RecurringSchedule(
         generatedAt: Long,
         zone: ZoneId = ZoneId.systemDefault()
     ): List<Task> {
-        val assignees = recipientsForOccurrence(members)
-        val separateForEveryone = assignedToUserId.isEmpty() &&
-            assignmentMode == RecurringAssignmentMode.EACH_MEMBER
+        val effective = withCurrentManager(members)
+        val assignees = effective.recipientsForOccurrence(members)
+        val separateForEveryone = effective.assignedToUserId.isEmpty() &&
+            effective.assignmentMode == RecurringAssignmentMode.EACH_MEMBER
         return assignees.map { assignee ->
             Task(
                 id = if (separateForEveryone) "${taskIdFor(date)}_each_${assignee!!.id}" else taskIdFor(date),
@@ -89,7 +91,7 @@ data class RecurringSchedule(
                 familyId = familyId,
                 assignedToUserId = assignee?.id.orEmpty(),
                 assignedToUserName = assignee?.name.orEmpty(),
-                createdByUserId = createdByUserId,
+                createdByUserId = effective.createdByUserId,
                 priority = priority,
                 status = TaskStatus.TODO,
                 points = points,
@@ -108,10 +110,32 @@ data class RecurringSchedule(
         if (actor == null || actor.role != UserRole.ADMIN ||
             actor.familyId.isBlank() || actor.familyId != familyId
         ) return false
-        if (assignedToUserId == actor.id) return false
-        if (actor.id == createdByUserId) return true
-        return assignedToUserId.isNotEmpty() || assignmentMode != RecurringAssignmentMode.EACH_MEMBER ||
-            recipientsForOccurrence(members).none { it?.id == actor.id }
+        val effective = withCurrentManager(members)
+        if (effective.assignedToUserId == actor.id) return false
+        if (actor.id == effective.createdByUserId) return true
+        return effective.assignedToUserId.isNotEmpty() ||
+            effective.assignmentMode != RecurringAssignmentMode.EACH_MEMBER ||
+            effective.recipientsForOccurrence(members).none { it?.id == actor.id }
+    }
+
+    /**
+     * Khôi phục lịch mất người quản lý từ thành viên hiện tại, cùng quy tắc cho UI và DB.
+     * Giữ người quản lý hợp lệ đã có; chọn theo ID ổn định khi cần chuyển, không chọn người nhận đích danh.
+     * Repository lưu bản sửa trong transaction; bản tính này không tác động các Task đã sinh.
+     */
+    fun withCurrentManager(members: List<User>): RecurringSchedule {
+        val admins = members.filter { it.familyId == familyId && it.role == UserRole.ADMIN }
+            .distinctBy { it.id }.sortedBy { it.id }
+        if (admins.any { it.id == createdByUserId && it.id != assignedToUserId }) return this
+        val manager = admins.firstOrNull { it.id != assignedToUserId }
+        if (manager != null) return copy(createdByUserId = manager.id)
+        // Dữ liệu cũ giao cho phụ huynh duy nhất: không thể tự duyệt, chuyển về lịch chung trước khi nhận quản lý.
+        return if (admins.size == 1) copy(
+            createdByUserId = admins.single().id,
+            assignedToUserId = "",
+            assignedToUserName = "",
+            assignmentMode = RecurringAssignmentMode.SHARED
+        ) else this
     }
 
     private fun recipientsForOccurrence(members: List<User>): List<User?> {
