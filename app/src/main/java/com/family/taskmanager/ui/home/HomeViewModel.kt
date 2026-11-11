@@ -87,9 +87,14 @@ class HomeViewModel @Inject constructor(
     val isSavingTask: StateFlow<Boolean> = _isSavingTask.asStateFlow()
 
     private val _observedReactionTaskId = MutableStateFlow<String?>(null)
+    private var cachedReactionFamilyId: String? = null
+    private val reactionFlowsCache = object : LinkedHashMap<String, StateFlow<List<TaskReaction>>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, StateFlow<List<TaskReaction>>>?): Boolean =
+            size > 64
+    }
 
     /**
-     * Luồng cảm xúc ổn định cho nhiệm vụ đang xem:
+     * Luồng cảm xúc ổn định cho nhiệm vụ đang xem ở màn Chi tiết:
      * - Dùng flatMapLatest khi đổi taskId để ngừng theo dõi nhiệm vụ cũ ngay lập tức.
      * - Kết hợp currentUser để khi đổi tài khoản hoặc rời gia đình không giữ lại dữ liệu phiên cũ.
      * - Chỉ chia sẻ bằng stateIn một lần duy nhất trong ViewModel, tránh tạo collector thừa khi recompose.
@@ -119,8 +124,30 @@ class HomeViewModel @Inject constructor(
         return observedTaskReactions
     }
 
-    fun getTaskReactions(taskId: String): StateFlow<List<TaskReaction>> =
-        observeTaskReactions(taskId)
+    /**
+     * Dùng cho danh sách nhiều thẻ nhiệm vụ trên HomeScreen:
+     * giữ cache có giới hạn theo taskId và tự xóa khi đổi gia đình/tài khoản,
+     * không tạo lại stateIn mỗi lần Compose recompose và không ghi đè nhiệm vụ đang xem.
+     */
+    @Synchronized
+    fun getTaskReactions(taskId: String): StateFlow<List<TaskReaction>> {
+        val currentFamilyId = currentUser.value?.familyId?.takeIf { it.isNotEmpty() }
+        if (cachedReactionFamilyId != currentFamilyId) {
+            reactionFlowsCache.clear()
+            cachedReactionFamilyId = currentFamilyId
+        }
+        return reactionFlowsCache.getOrPut(taskId) {
+            currentUser
+                .flatMapLatest { user ->
+                    if (user != null && user.familyId.isNotEmpty()) {
+                        taskRepository.getReactionsByTask(taskId)
+                    } else {
+                        flowOf(emptyList())
+                    }
+                }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }
+    }
 
     fun toggleReaction(taskId: String, emoji: String) {
         val user = currentUser.value ?: return
@@ -242,6 +269,7 @@ class HomeViewModel @Inject constructor(
         points: Int,
         deadlineTimestamp: Long,
         assigneeId: String? = assignedToUser?.id,
+        openToAll: Boolean? = null,
         onResult: (TaskActionResult) -> Unit = {}
     ) = runSaveAction(onResult) { user ->
         taskRepository.updateTask(
@@ -252,7 +280,8 @@ class HomeViewModel @Inject constructor(
             priority = priority,
             points = points,
             deadlineTimestamp = deadlineTimestamp,
-            actor = user
+            actor = user,
+            openToAll = openToAll
         )
     }
 

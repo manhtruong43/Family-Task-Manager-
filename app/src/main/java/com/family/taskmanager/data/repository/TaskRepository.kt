@@ -1,6 +1,7 @@
 package com.family.taskmanager.data.repository
 
 import android.content.Context
+import android.util.Log
 import androidx.room.withTransaction
 import com.family.taskmanager.R
 import com.family.taskmanager.data.local.AppDatabase
@@ -18,7 +19,6 @@ import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.service.PushNotificationService
 import com.family.taskmanager.data.service.ServiceLocale
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -43,11 +43,23 @@ class TaskRepository @Inject constructor(
     private val pushNotificationService: PushNotificationService
 ) {
     companion object {
+        private const val TAG = "TaskRepository"
         const val MAX_TASK_POINTS = 100_000
         private val SUBMITTABLE_STATUSES = setOf(TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REJECTED)
     }
 
     private val proofImageStorage = ProofImageStorage(context)
+
+    /** Cho phép bài kiểm thử giả lập việc gửi push hệ thống và quan sát log lỗi sau commit. */
+    internal var systemPushSender: (title: String, message: String) -> Unit = { title, message ->
+        pushNotificationService.sendTaskNotification(title, message)
+    }
+    internal var onExpectedPushFailure: (title: String, error: Throwable) -> Unit = { title, error ->
+        Log.w(TAG, "Inbox saved; system task notification unavailable (title=$title)", error)
+    }
+    internal var onUnexpectedPushFailure: (title: String, error: Throwable) -> Unit = { title, error ->
+        Log.e(TAG, "Inbox saved; unexpected error sending system task notification after commit (title=$title)", error)
+    }
 
     fun getTasksByFamily(familyId: String): Flow<List<Task>> =
         taskDao.getTasksByFamily(familyId)
@@ -104,10 +116,12 @@ class TaskRepository @Inject constructor(
                 result = TaskActionResult.INVALID_INPUT
                 return@withTransaction null
             }
-            // Giao đích danh: người nhận phải cùng nhà và không phải chính người giao
+            // Giao đích danh: người nhận phải cùng nhà, không phải chính người giao, và phải có người duyệt hợp lệ
+            val admins = userDao.getUsersByRoleSync(freshActor.familyId, UserRole.ADMIN)
             val assignee = if (task.assignedToUserId.isNotEmpty()) {
                 val found = userDao.getUserByIdSync(task.assignedToUserId)
-                if (!TaskPermissions.canAssignTo(freshActor, found)) {
+                val hasReviewer = found != null && (found.role != UserRole.ADMIN || admins.any { it.id != found.id })
+                if (!TaskPermissions.canAssignTo(freshActor, found, hasReviewer)) {
                     result = TaskActionResult.INVALID_INPUT
                     return@withTransaction null
                 }
@@ -156,8 +170,14 @@ class TaskRepository @Inject constructor(
                 result = TaskActionResult.INVALID_INPUT
                 return@withTransaction null
             }
+            val admins = userDao.getUsersByRoleSync(freshActor.familyId, UserRole.ADMIN)
             val assignees = ids.map { userDao.getUserByIdSync(it) }
-            if (assignees.any { !TaskPermissions.canAssignTo(freshActor, it) }) {
+            if (assignees.any { assignee ->
+                    val hasReviewer = assignee != null &&
+                        (assignee.role != UserRole.ADMIN || admins.any { it.id != assignee.id })
+                    !TaskPermissions.canAssignTo(freshActor, assignee, hasReviewer)
+                }
+            ) {
                 result = TaskActionResult.INVALID_INPUT
                 return@withTransaction null
             }
@@ -198,7 +218,9 @@ class TaskRepository @Inject constructor(
         database.withTransaction {
             val task = taskDao.getTaskById(taskId) ?: return@withTransaction TaskActionResult.NOT_FOUND
             val freshActor = userDao.getUserByIdSync(actor.id) ?: return@withTransaction TaskActionResult.NOT_ALLOWED
-            if (!TaskPermissions.canWork(freshActor, task)) {
+            val hasReviewer = freshActor.role != UserRole.ADMIN ||
+                hasOtherAdminInFamily(task.familyId, freshActor.id)
+            if (!TaskPermissions.canWork(freshActor, task, hasReviewer)) {
                 return@withTransaction TaskActionResult.NOT_ALLOWED
             }
             if (task.status != TaskStatus.TODO && task.status != TaskStatus.REJECTED) {
@@ -267,12 +289,15 @@ class TaskRepository @Inject constructor(
                 return@withTransaction null
             }
             val task = taskDao.getTaskById(taskId)
+            val hasReviewer = task != null && (
+                freshActor.role != UserRole.ADMIN || hasOtherAdminInFamily(task.familyId, freshActor.id)
+                )
             when {
                 task == null -> {
                     result = TaskActionResult.NOT_FOUND
                     null
                 }
-                !TaskPermissions.canWork(freshActor, task) -> {
+                !TaskPermissions.canWork(freshActor, task, hasReviewer) -> {
                     result = TaskActionResult.NOT_ALLOWED
                     null
                 }
@@ -405,8 +430,14 @@ class TaskRepository @Inject constructor(
 
     /**
      * Sửa nhiệm vụ khi chưa ai nộp minh chứng (Chưa làm / Đang làm / Bị từ chối).
-     * Đổi người làm -> việc về lại "Chưa làm", xóa minh chứng cũ, báo cho người mới và người cũ.
-     * [assigneeId] rỗng / null = giao cho cả nhà.
+     * - [assigneeId] rỗng / null = giao cho cả nhà (`openToAll = true`).
+     * - Khi [assigneeId] không đổi so với `current.assignedToUserId` và [openToAll] không truyền (`null`),
+     *   giữ nguyên `current.openToAll` để việc chung đã có người bấm "Bắt đầu" không bị biến thành việc riêng
+     *   chỉ vì Bố/Mẹ chỉnh sửa tiêu đề, mô tả, điểm hoặc hạn chót.
+     * - Khi muốn chủ động chuyển việc chung đang do 1 người giữ thành việc riêng của chính người đó,
+     *   truyền `openToAll = false`.
+     * - Đổi sang người làm khác (hoặc đổi từ có người nhận về cả nhà) -> việc về lại "Chưa làm", xóa minh chứng cũ,
+     *   báo cho người mới và người cũ.
      */
     suspend fun updateTask(
         taskId: String,
@@ -416,7 +447,8 @@ class TaskRepository @Inject constructor(
         priority: TaskPriority,
         points: Int,
         deadlineTimestamp: Long,
-        actor: User
+        actor: User,
+        openToAll: Boolean? = null
     ): TaskActionResult {
         val newAssigneeId = assigneeId.orEmpty()
 
@@ -436,12 +468,16 @@ class TaskRepository @Inject constructor(
             }
             val task = taskDao.getTaskById(taskId)
             if (newAssigneeId.isNotEmpty()) newAssignee = userDao.getUserByIdSync(newAssigneeId)
+            val hasReviewerForNewAssignee = newAssignee != null && (
+                newAssignee!!.role != UserRole.ADMIN || hasOtherAdminInFamily(freshActor.familyId, newAssignee!!.id)
+                )
             val error = when {
                 task == null -> TaskActionResult.NOT_FOUND
                 !TaskPermissions.canManage(freshActor, task) -> TaskActionResult.NOT_ALLOWED
                 task.status !in TaskPermissions.EDITABLE_STATUSES -> TaskActionResult.INVALID_STATE
                 title.isBlank() || points !in 0..MAX_TASK_POINTS -> TaskActionResult.INVALID_INPUT
-                newAssigneeId.isNotEmpty() && !TaskPermissions.canAssignTo(freshActor, newAssignee) ->
+                newAssigneeId.isNotEmpty() &&
+                    !TaskPermissions.canAssignTo(freshActor, newAssignee, hasReviewerForNewAssignee) ->
                     TaskActionResult.INVALID_INPUT
                 else -> null
             }
@@ -452,6 +488,12 @@ class TaskRepository @Inject constructor(
             val current = task!!
             before = current
             val assigneeChanged = newAssigneeId != current.assignedToUserId
+            val nextOpenToAll = when {
+                newAssigneeId.isEmpty() -> true
+                openToAll != null -> openToAll
+                !assigneeChanged -> current.openToAll
+                else -> false
+            }
             val updated = current.copy(
                 title = title.trim(),
                 description = description.trim(),
@@ -463,7 +505,7 @@ class TaskRepository @Inject constructor(
                 status = if (assigneeChanged) TaskStatus.TODO else current.status,
                 proofImageUrl = if (assigneeChanged) "" else current.proofImageUrl,
                 proofNote = if (assigneeChanged) "" else current.proofNote,
-                openToAll = newAssigneeId.isEmpty()
+                openToAll = nextOpenToAll
             )
             taskDao.updateTask(updated)
 
@@ -550,6 +592,9 @@ class TaskRepository @Inject constructor(
 
     // ─────────────────────────── Tiện ích ───────────────────────────
 
+    private suspend fun hasOtherAdminInFamily(familyId: String, excludeUserId: String): Boolean =
+        userDao.getUsersByRoleSync(familyId, UserRole.ADMIN).any { it.id != excludeUserId }
+
     /**
      * Lỗi khi duyệt / từ chối [task] (đọc trong transaction), hoặc null nếu được phép.
      * So sánh [Task.submissionRevision] (và người thực hiện / đường dẫn ảnh) trên [screenTask]
@@ -593,8 +638,8 @@ class TaskRepository @Inject constructor(
         val receivers = userIds.filter { it.isNotBlank() }.distinct()
         if (receivers.isEmpty()) return null
         val now = System.currentTimeMillis()
-        receivers.forEach { userId ->
-            notificationDao.insertNotification(
+        notificationDao.insertNotifications(
+            receivers.map { userId ->
                 NotificationItem(
                     id = UUID.randomUUID().toString(),
                     userId = userId,
@@ -602,21 +647,19 @@ class TaskRepository @Inject constructor(
                     message = message,
                     timestamp = now
                 )
-            )
-        }
+            }
+        )
         return PendingPush(title, message)
     }
 
-    /** Gửi thông báo đẩy hệ thống sau khi DB đã commit; lỗi hệ thống không làm hỏng kết quả nghiệp vụ. */
+    /** Gửi thông báo đẩy hệ thống sau khi DB đã commit; phân tách lỗi dự kiến và lỗi bất ngờ, có ghi log rõ ràng. */
     private fun sendSystemPushSafely(pendingPush: PendingPush?) {
         if (pendingPush == null) return
-        try {
-            pushNotificationService.sendTaskNotification(pendingPush.title, pendingPush.message)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // Lỗi thông báo đẩy hệ thống (quyền POST_NOTIFICATIONS, trạng thái thiết bị...) không làm mất dữ liệu đã lưu
-        }
+        deliverCommittedSystemNotification(
+            post = { systemPushSender(pendingPush.title, pendingPush.message) },
+            onExpectedFailure = { error -> onExpectedPushFailure(pendingPush.title, error) },
+            onUnexpectedFailure = { error -> onUnexpectedPushFailure(pendingPush.title, error) }
+        )
     }
 
     /** Xóa file ảnh minh chứng cũ sau khi DB đã commit, không để việc hủy coroutine hay lỗi I/O làm hỏng kết quả. */
@@ -625,8 +668,8 @@ class TaskRepository @Inject constructor(
         withContext(NonCancellable) {
             try {
                 proofImageStorage.delete(paths)
-            } catch (_: Exception) {
-                // Lỗi xóa file trên bộ nhớ không làm hỏng giao dịch DB đã hoàn tất
+            } catch (error: Exception) {
+                Log.w(TAG, "Proof files cleanup failed after DB commit", error)
             }
         }
     }

@@ -421,6 +421,24 @@ class RecurringScheduleRepositoryTest {
         assertEquals(1, db.notificationDao().getNotificationsByUser(bin.id).first().size)
     }
 
+    @Test
+    fun soleParentSchedule_generatesSharedTaskInsteadOfUnreviewableTask() = runBlocking<Unit> {
+        // Lịch đang giao cho Bố, nhưng Mẹ đã rời nhóm -> Bố là phụ huynh duy nhất còn lại
+        db.recurringScheduleDao().upsert(
+            RecurringSchedule(
+                id = "sole-parent-sched", familyId = family, title = "Nấu cơm tối",
+                assignedToUserId = dad.id, assignedToUserName = dad.name, createdByUserId = parent.id
+            )
+        )
+        db.userDao().updateUser(parent.copy(familyId = ""))
+
+        // Kỳ mới không sinh việc bị kẹt cho Bố mà chuyển thành việc chung cho cả nhà
+        assertEquals(1, repository.generateDueTasks())
+        val generated = familyTasks().single()
+        assertEquals("", generated.assignedToUserId)
+        assertTrue(generated.openToAll)
+    }
+
     private fun rejectNotificationInserts() {
         db.openHelper.writableDatabase.execSQL(
             "CREATE TRIGGER fail_schedule_inbox BEFORE INSERT ON notifications " +

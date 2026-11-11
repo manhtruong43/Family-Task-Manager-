@@ -97,3 +97,24 @@ internal fun postLocalNotificationSafely(post: () -> Unit): Result<Unit> {
         if (exception.cause is RemoteException) Result.failure(exception) else throw exception
     }
 }
+
+/**
+ * Gửi thông báo hệ thống SAU KHI transaction DB (gồmทั้ง nhiệm vụ và hộp thư trong app) đã commit:
+ * - Không bao giờ nuốt [CancellationException].
+ * - Lỗi quyền / dịch vụ hệ thống dự kiến ([SecurityException], [RemoteException]) được chuyển tới [onExpectedFailure] (ghi log warn).
+ * - Lỗi bất ngờ sau commit ([RuntimeException] / [Exception] khác) được chuyển tới [onUnexpectedFailure] (ghi log error)
+ *   để chẩn đoán rõ ràng mà không biến thao tác đã lưu DB thành báo lỗi lưu thất bại trên giao diện.
+ */
+internal inline fun deliverCommittedSystemNotification(
+    noinline post: () -> Unit,
+    onExpectedFailure: (Throwable) -> Unit = {},
+    onUnexpectedFailure: (Throwable) -> Unit = {}
+) {
+    try {
+        postLocalNotificationSafely(post).exceptionOrNull()?.let(onExpectedFailure)
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Exception) {
+        onUnexpectedFailure(exception)
+    }
+}

@@ -1,5 +1,6 @@
 package com.family.taskmanager
 
+import android.database.sqlite.SQLiteException
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -14,13 +15,16 @@ import com.family.taskmanager.data.repository.TaskActionResult
 import com.family.taskmanager.data.repository.TaskRepository
 import com.family.taskmanager.data.service.NotificationPreferences
 import com.family.taskmanager.data.service.PushNotificationService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -431,5 +435,196 @@ class TaskRepositoryTest {
         assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(trash.id), parent))
         assertEquals(10, points(bin.id))
         assertEquals(0, points(na.id))
+    }
+
+    // ─── Các kiểm thử bổ sung sau PR #18 (Mục 1, 2, 3) ───
+
+    @Test
+    fun editContent_ofClaimedSharedTask_preservesOpenToAll_soResetAndRejectStillReleaseToFamily() = runBlocking<Unit> {
+        // 1. Chung -> Na nhận -> Mẹ chỉ sửa tiêu đề/mô tả/điểm/hạn -> Na trả việc -> Bin nhận được
+        val shared = Task(id = "t-shared-edit", title = "Quét nhà", familyId = family, createdByUserId = parent.id, points = 10)
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(shared, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.startTask(shared.id, na))
+        assertTrue(fresh(shared.id).openToAll)
+
+        // Mẹ mở sửa việc, chỉ đổi tiêu đề / mô tả / điểm / hạn chót (assigneeId vẫn là na.id đang giữ việc)
+        assertEquals(
+            TaskActionResult.SUCCESS,
+            repository.updateTask(
+                taskId = shared.id,
+                title = "Quét nhà sạch",
+                description = "Quét cả phòng khách",
+                assigneeId = na.id,
+                priority = TaskPriority.HIGH,
+                points = 20,
+                deadlineTimestamp = 123456L,
+                actor = parent
+            )
+        )
+        val afterContentEdit = fresh(shared.id)
+        assertEquals("Quét nhà sạch", afterContentEdit.title)
+        assertEquals(na.id, afterContentEdit.assignedToUserId)
+        assertEquals(TaskStatus.IN_PROGRESS, afterContentEdit.status)
+        assertTrue(afterContentEdit.openToAll) // Không bị mất cờ việc chung!
+
+        // Na đặt lại về TODO -> việc trở về cả nhà, Bin nhận được
+        assertEquals(TaskActionResult.SUCCESS, repository.resetTaskToTodo(shared.id, na))
+        assertEquals("", fresh(shared.id).assignedToUserId)
+        assertTrue(fresh(shared.id).openToAll)
+        assertEquals(TaskActionResult.SUCCESS, repository.startTask(shared.id, bin))
+        assertEquals(bin.id, fresh(shared.id).assignedToUserId)
+
+        // 2. Chung (đang do Bin giữ) -> Mẹ sửa nội dung -> Bin nộp -> Mẹ từ chối -> việc trở về cả nhà
+        assertEquals(
+            TaskActionResult.SUCCESS,
+            repository.updateTask(
+                taskId = shared.id,
+                title = "Quét nhà kỹ hơn",
+                description = "Mô tả mới",
+                assigneeId = bin.id,
+                priority = TaskPriority.HIGH,
+                points = 20,
+                deadlineTimestamp = 123456L,
+                actor = parent
+            )
+        )
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(shared.id, proof, "đã quét", bin))
+        assertEquals(TaskActionResult.SUCCESS, repository.rejectTask(fresh(shared.id), parent))
+        val afterReject = fresh(shared.id)
+        assertEquals(TaskStatus.REJECTED, afterReject.status)
+        assertEquals("", afterReject.assignedToUserId)
+        assertTrue(afterReject.openToAll)
+
+        // 3. Giao riêng Na -> sửa tiêu đề -> Na đặt lại -> vẫn giao riêng Na, không mở cho Bin
+        val dedicatedForNa = Task(
+            id = "t-dedicated-na", title = "Học bài", familyId = family,
+            assignedToUserId = na.id, assignedToUserName = na.name, createdByUserId = parent.id, points = 15
+        )
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(dedicatedForNa, parent))
+        assertFalse(fresh(dedicatedForNa.id).openToAll)
+        assertEquals(TaskActionResult.SUCCESS, repository.startTask(dedicatedForNa.id, na))
+        assertEquals(
+            TaskActionResult.SUCCESS,
+            repository.updateTask(
+                taskId = dedicatedForNa.id,
+                title = "Học bài Toán",
+                description = "",
+                assigneeId = na.id,
+                priority = TaskPriority.MEDIUM,
+                points = 15,
+                deadlineTimestamp = 0L,
+                actor = parent
+            )
+        )
+        assertFalse(fresh(dedicatedForNa.id).openToAll)
+        assertEquals(TaskActionResult.SUCCESS, repository.resetTaskToTodo(dedicatedForNa.id, na))
+        assertEquals(na.id, fresh(dedicatedForNa.id).assignedToUserId)
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.startTask(dedicatedForNa.id, bin))
+
+        // 4. Chủ động chuyển việc chung đang do Na giữ thành việc riêng của chính Na (openToAll = false)
+        assertEquals(TaskActionResult.SUCCESS, repository.startTask(shared.id, na))
+        assertTrue(fresh(shared.id).openToAll)
+        assertEquals(
+            TaskActionResult.SUCCESS,
+            repository.updateTask(
+                taskId = shared.id,
+                title = "Quét nhà giao riêng Na",
+                description = "",
+                assigneeId = na.id,
+                priority = TaskPriority.HIGH,
+                points = 20,
+                deadlineTimestamp = 0L,
+                actor = parent,
+                openToAll = false
+            )
+        )
+        assertFalse(fresh(shared.id).openToAll)
+        assertEquals(TaskActionResult.SUCCESS, repository.resetTaskToTodo(shared.id, na))
+        assertEquals(na.id, fresh(shared.id).assignedToUserId)
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.startTask(shared.id, bin))
+    }
+
+    @Test
+    fun pushAndInboxErrorHandling_logsExpectedAndUnexpectedPostCommitErrors_andRollsBackOnInboxFailure() = runBlocking<Unit> {
+        var expectedLogged: Throwable? = null
+        var unexpectedLogged: Throwable? = null
+        repository.onExpectedPushFailure = { _, err -> expectedLogged = err }
+        repository.onUnexpectedPushFailure = { _, err -> unexpectedLogged = err }
+
+        // 1. Lỗi gửi dự kiến sau commit (SecurityException) -> nhiệm vụ + hộp thư vẫn lưu đúng, có ghi nhận expected
+        val securityErr = SecurityException("POST_NOTIFICATIONS revoked")
+        repository.systemPushSender = { _, _ -> throw securityErr }
+        val t1 = taskForBin.copy(id = "t-push-sec", title = "Việc 1")
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(t1, parent))
+        assertSame(securityErr, expectedLogged)
+        assertNull(unexpectedLogged)
+        assertEquals("Việc 1", fresh(t1.id).title)
+        assertTrue(db.notificationDao().getNotificationsByUser(bin.id).first().isNotEmpty())
+
+        // 2. Lỗi bất ngờ sau commit (IllegalStateException) -> nhiệm vụ + hộp thư đã commit vẫn trả về SUCCESS, ghi nhận unexpected
+        expectedLogged = null
+        val unexpectedErr = IllegalStateException("Channel misconfigured")
+        repository.systemPushSender = { _, _ -> throw unexpectedErr }
+        val t2 = taskForBin.copy(id = "t-push-unexpected", title = "Việc 2")
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(t2, parent))
+        assertNull(expectedLogged)
+        assertSame(unexpectedErr, unexpectedLogged)
+        assertEquals("Việc 2", fresh(t2.id).title)
+
+        // 3. CancellationException không bao giờ bị nuốt
+        val cancelErr = CancellationException("Cancelled")
+        repository.systemPushSender = { _, _ -> throw cancelErr }
+        val t3 = taskForBin.copy(id = "t-push-cancel", title = "Việc 3")
+        try {
+            repository.createTask(t3, parent)
+            fail("CancellationException must be rethrown")
+        } catch (actual: CancellationException) {
+            assertSame(cancelErr, actual)
+        }
+
+        // 4. Lỗi ghi inbox trong transaction -> rollback toàn bộ (nhiệm vụ không chuyển trạng thái, điểm không cộng)
+        var pushCalled = false
+        repository.systemPushSender = { _, _ -> pushCalled = true }
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(taskForBin.id, proof, "", bin))
+        val submitted = fresh(taskForBin.id)
+        pushCalled = false
+
+        db.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER fail_task_inbox BEFORE INSERT ON notifications " +
+                "BEGIN SELECT RAISE(ABORT, 'injected inbox failure'); END"
+        )
+        try {
+            repository.approveTask(submitted, parent)
+            fail("Inbox write failure inside transaction must throw and roll back")
+        } catch (_: SQLiteException) {
+            assertEquals(TaskStatus.PENDING_APPROVAL, status(taskForBin.id))
+            assertEquals(0, points(bin.id))
+            assertFalse(pushCalled)
+        } finally {
+            db.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_task_inbox")
+        }
+    }
+
+    @Test
+    fun soleRemainingParent_cannotClaimOrSubmitSharedTaskWithoutReviewer_whileChildrenStillCan() = runBlocking<Unit> {
+        val shared = Task(id = "t-sole-parent", title = "Lau cầu thang", familyId = family, createdByUserId = parent.id, points = 15)
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(shared, parent))
+
+        // Khi Mẹ vẫn trong gia đình, Bố có Mẹ duyệt nên nhận và đặt lại việc chung bình thường
+        assertEquals(TaskActionResult.SUCCESS, repository.startTask(shared.id, dad))
+        assertEquals(TaskActionResult.SUCCESS, repository.resetTaskToTodo(shared.id, dad))
+
+        // Mẹ rời gia đình -> Bố là phụ huynh duy nhất còn lại
+        db.userDao().updateUser(parent.copy(familyId = ""))
+
+        // Bố không được nhận hoặc nộp việc chung nữa (vì nếu Bố làm sẽ không còn ai đủ quyền duyệt)
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.startTask(shared.id, dad))
+        assertEquals(TaskActionResult.NOT_ALLOWED, repository.submitTaskProof(shared.id, proof, "", dad))
+
+        // Các con vẫn nhận, nộp và được Bố duyệt bình thường
+        assertEquals(TaskActionResult.SUCCESS, repository.startTask(shared.id, bin))
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(shared.id, proof, "", bin))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(shared.id), dad))
+        assertEquals(15, points(bin.id))
     }
 }

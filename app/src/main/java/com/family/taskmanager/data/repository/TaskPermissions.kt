@@ -42,8 +42,21 @@ object TaskPermissions {
         }
     }
 
-    /** Được bắt đầu làm / đặt lại / nộp minh chứng: chỉ người được giao (việc chung: mọi người trừ người giao). */
-    fun canWork(user: User?, task: Task): Boolean = isMine(user, task)
+    /**
+     * Người thực hiện [worker] có người duyệt hợp lệ trong gia đình hay không:
+     * - Con (MEMBER): luôn có Bố/Mẹ trong gia đình duyệt.
+     * - Bố/Mẹ (ADMIN): vì không ai tự duyệt việc của mình, bắt buộc trong gia đình phải còn
+     *   ít nhất một Bố/Mẹ KHÁC ([hasOtherAdminInFamily] = true) mới được nhận hoặc được giao việc.
+     */
+    fun hasValidReviewerForWorker(worker: User?, hasOtherAdminInFamily: Boolean): Boolean =
+        worker != null && (worker.role != UserRole.ADMIN || hasOtherAdminInFamily)
+
+    /**
+     * Được bắt đầu làm / đặt lại / nộp minh chứng: chỉ người được giao (việc chung: mọi người trừ người giao),
+     * đồng thời người làm phải có người duyệt hợp lệ trong gia đình.
+     */
+    fun canWork(user: User?, task: Task, hasOtherAdminInFamily: Boolean = true): Boolean =
+        isMine(user, task) && hasValidReviewerForWorker(user, hasOtherAdminInFamily)
 
     /**
      * Được duyệt / từ chối: Admin (Bố/Mẹ) cùng gia đình, và KHÔNG phải người đang làm việc đó
@@ -73,9 +86,16 @@ object TaskPermissions {
     fun canCancel(user: User?, task: Task): Boolean =
         canManage(user, task) && task.status in CANCELLABLE_STATUSES
 
-    /** Được giao việc cho [assignee]: người nhận cùng gia đình và KHÔNG phải chính người giao. */
-    fun canAssignTo(actor: User?, assignee: User?): Boolean =
-        canCreate(actor) && assignee != null && assignee.familyId == actor!!.familyId && assignee.id != actor.id
+    /**
+     * Được giao việc cho [assignee]: người nhận cùng gia đình, KHÔNG phải chính người giao,
+     * và nếu người nhận là Bố/Mẹ (ADMIN) thì phải có ít nhất một Bố/Mẹ khác trong gia đình để duyệt.
+     */
+    fun canAssignTo(actor: User?, assignee: User?, hasOtherAdminForAssignee: Boolean = true): Boolean =
+        canCreate(actor) &&
+            assignee != null &&
+            assignee.familyId == actor!!.familyId &&
+            assignee.id != actor.id &&
+            hasValidReviewerForWorker(assignee, hasOtherAdminForAssignee)
 
     /** Được tạo / giao việc mới: Admin đã có gia đình. */
     fun canCreate(user: User?): Boolean =
