@@ -54,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +86,7 @@ import com.family.taskmanager.ui.home.HomeViewModel
 import com.family.taskmanager.ui.theme.GlassBox
 import com.family.taskmanager.ui.theme.GlassCard
 import com.family.taskmanager.ui.theme.GlassGradientBackground
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,6 +106,14 @@ fun TaskDetailScreen(
     val reactions by viewModel.observedTaskReactions.collectAsState()
     val isSubmittingProof by viewModel.isSubmittingProof.collectAsState()
     val context = LocalContext.current
+    val locale = LocalConfiguration.current.locales[0]
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000L)
+            nowMillis = System.currentTimeMillis()
+        }
+    }
 
     // Hiện thông báo ngắn khi thao tác bị từ chối (không có quyền, sai trạng thái...)
     val showResult: (TaskActionResult) -> Unit = { result ->
@@ -235,6 +246,20 @@ fun TaskDetailScreen(
                             Text(stringResource(R.string.task_detail_assignee, assigneeDisplayName(task)), color = Color.White)
                             Text(stringResource(R.string.task_detail_priority, priorityLabel(task.priority)), color = Color.White)
                             Text(stringResource(R.string.task_detail_points, task.points), color = Color(0xFFFBBF24), fontWeight = FontWeight.Bold)
+                            val overdue = task.isOverdue(nowMillis)
+                            val deadlineText = if (task.deadlineTimestamp > 0L) {
+                                formatTaskDeadlineDetail(task.deadlineTimestamp, locale)
+                            } else {
+                                stringResource(R.string.tk_no_deadline)
+                            }
+                            Text(
+                                text = stringResource(
+                                    if (overdue) R.string.tk_detail_deadline_overdue else R.string.tk_detail_deadline,
+                                    deadlineText
+                                ),
+                                color = if (overdue) Color(0xFFF87171) else Color.White,
+                                fontWeight = if (overdue) FontWeight.Bold else FontWeight.Normal
+                            )
 
                             Spacer(modifier = Modifier.height(16.dp))
 

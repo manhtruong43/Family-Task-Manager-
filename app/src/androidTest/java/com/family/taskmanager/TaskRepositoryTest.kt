@@ -442,6 +442,7 @@ class TaskRepositoryTest {
     @Test
     fun editContent_ofClaimedSharedTask_preservesOpenToAll_soResetAndRejectStillReleaseToFamily() = runBlocking<Unit> {
         // 1. Chung -> Na nhận -> Mẹ chỉ sửa tiêu đề/mô tả/điểm/hạn -> Na trả việc -> Bin nhận được
+        val futureDeadline = System.currentTimeMillis() + 3_600_000L
         val shared = Task(id = "t-shared-edit", title = "Quét nhà", familyId = family, createdByUserId = parent.id, points = 10)
         assertEquals(TaskActionResult.SUCCESS, repository.createTask(shared, parent))
         assertEquals(TaskActionResult.SUCCESS, repository.startTask(shared.id, na))
@@ -457,7 +458,7 @@ class TaskRepositoryTest {
                 assigneeId = na.id,
                 priority = TaskPriority.HIGH,
                 points = 20,
-                deadlineTimestamp = 123456L,
+                deadlineTimestamp = futureDeadline,
                 actor = parent
             )
         )
@@ -484,7 +485,7 @@ class TaskRepositoryTest {
                 assigneeId = bin.id,
                 priority = TaskPriority.HIGH,
                 points = 20,
-                deadlineTimestamp = 123456L,
+                deadlineTimestamp = futureDeadline,
                 actor = parent
             )
         )
@@ -626,5 +627,81 @@ class TaskRepositoryTest {
         assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(shared.id, proof, "", bin))
         assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(shared.id), dad))
         assertEquals(15, points(bin.id))
+    }
+
+    @Test
+    fun deadlineValidation_rejectsPastOnCreateAndChangedEdit_allowsFutureAndUnchangedOverdueEdit() = runBlocking<Unit> {
+        val now = System.currentTimeMillis()
+        val past = now - 60_000L
+        val anotherPast = now - 120_000L
+        val future = now + 3_600_000L
+
+        // 1. Tạo việc với hạn ở quá khứ -> bị từ chối (INVALID_INPUT)
+        val pastSingle = taskForBin.copy(id = "t-past-single", deadlineTimestamp = past)
+        assertEquals(TaskActionResult.INVALID_INPUT, repository.createTask(pastSingle, parent))
+        assertNull(db.taskDao().getTaskById("t-past-single"))
+
+        val pastTemplate = taskForEveryone.copy(id = "t-past-each", title = "Việc quá khứ", deadlineTimestamp = past)
+        assertEquals(
+            TaskActionResult.INVALID_INPUT,
+            repository.createTaskForEach(pastTemplate, listOf(bin.id, na.id), parent)
+        )
+
+        // 2. Tạo việc với hạn ở tương lai -> thành công (SUCCESS)
+        val futureSingle = taskForBin.copy(id = "t-future-single", deadlineTimestamp = future)
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(futureSingle, parent))
+        assertEquals(future, fresh("t-future-single").deadlineTimestamp)
+
+        val futureTemplate = taskForEveryone.copy(id = "t-future-each", title = "Việc tương lai", deadlineTimestamp = future)
+        assertEquals(
+            TaskActionResult.SUCCESS,
+            repository.createTaskForEach(futureTemplate, listOf(bin.id, na.id), parent)
+        )
+
+        // 3. Sửa tên một việc đã quá hạn mà giữ nguyên hạn -> vẫn lưu được (SUCCESS)
+        val alreadyOverdue = taskForBin.copy(id = "t-already-overdue", title = "Việc cũ quá hạn", deadlineTimestamp = past)
+        db.taskDao().insertTask(alreadyOverdue)
+        assertEquals(
+            TaskActionResult.SUCCESS,
+            repository.updateTask(
+                taskId = alreadyOverdue.id,
+                title = "Việc cũ quá hạn (đổi tên)",
+                description = "Giữ nguyên hạn cũ",
+                assigneeId = bin.id,
+                priority = TaskPriority.MEDIUM,
+                points = 10,
+                deadlineTimestamp = past, // giữ nguyên hạn cũ
+                actor = parent
+            )
+        )
+        assertEquals("Việc cũ quá hạn (đổi tên)", fresh(alreadyOverdue.id).title)
+
+        // 4. Sửa sang hạn khác ở quá khứ -> bị từ chối (INVALID_INPUT)
+        assertEquals(
+            TaskActionResult.INVALID_INPUT,
+            repository.updateTask(
+                taskId = alreadyOverdue.id,
+                title = "Đổi sang hạn quá khứ khác",
+                description = "",
+                assigneeId = bin.id,
+                priority = TaskPriority.MEDIUM,
+                points = 10,
+                deadlineTimestamp = anotherPast,
+                actor = parent
+            )
+        )
+        assertEquals(
+            TaskActionResult.INVALID_INPUT,
+            repository.updateTask(
+                taskId = futureSingle.id,
+                title = "Đổi từ tương lai về quá khứ",
+                description = "",
+                assigneeId = bin.id,
+                priority = TaskPriority.MEDIUM,
+                points = 10,
+                deadlineTimestamp = past,
+                actor = parent
+            )
+        )
     }
 }

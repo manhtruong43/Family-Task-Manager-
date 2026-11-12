@@ -48,4 +48,13 @@ data class Task(
         if (proofImageUrl.isBlank()) return emptyList()
         return proofImageUrl.split(",").map { it.trim() }.filter { it.isNotEmpty() }
     }
+
+    /**
+     * Quá hạn khi nhiệm vụ có hạn chót (`deadlineTimestamp > 0`), đã qua thời điểm hạn chót,
+     * và vẫn chưa nộp báo cáo chờ duyệt / chưa hoàn thành.
+     */
+    fun isOverdue(nowMillis: Long = System.currentTimeMillis()): Boolean =
+        deadlineTimestamp in 1 until nowMillis &&
+            status != TaskStatus.COMPLETED &&
+            status != TaskStatus.PENDING_APPROVAL
 }

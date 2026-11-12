@@ -48,9 +48,11 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -75,9 +78,11 @@ import com.family.taskmanager.data.repository.TaskPermissions
 import com.family.taskmanager.ui.notifications.NotificationBell
 import com.family.taskmanager.ui.task.StatusBadge
 import com.family.taskmanager.ui.task.assigneeDisplayName
+import com.family.taskmanager.ui.task.formatTaskShortDeadline
 import com.family.taskmanager.ui.theme.GlassBox
 import com.family.taskmanager.ui.theme.GlassCard
 import com.family.taskmanager.ui.theme.GlassGradientBackground
+import kotlinx.coroutines.delay
 
 private val AccentBlue = Color(0xFF38BDF8)
 private val AccentGold = Color(0xFFFBBF24)
@@ -104,6 +109,13 @@ fun HomeScreen(
     var showInviteDialog by remember { mutableStateOf(false) }
     var selectedMemberFilter by remember { mutableStateOf<User?>(null) }
     var selectedMemberDetail by remember { mutableStateOf<User?>(null) }
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000L)
+            nowMillis = System.currentTimeMillis()
+        }
+    }
 
     val isAdmin = currentUser?.role == UserRole.ADMIN
 
@@ -303,6 +315,7 @@ fun HomeScreen(
                             GlassTaskItemCard(
                                 task = task,
                                 viewModel = viewModel,
+                                nowMillis = nowMillis,
                                 onClick = { onTaskClick(task.id) }
                             )
                             Spacer(modifier = Modifier.height(12.dp))
@@ -877,12 +890,17 @@ fun FamilyInviteDialog(
 fun GlassTaskItemCard(
     task: Task,
     viewModel: HomeViewModel,
+    nowMillis: Long = System.currentTimeMillis(),
     onClick: () -> Unit
 ) {
     val reactions by viewModel.getTaskReactions(task.id).collectAsState()
+    val locale = LocalConfiguration.current.locales[0]
+    val context = LocalContext.current
+    val overdue = task.isOverdue(nowMillis)
 
     GlassCard(
         onClick = onClick,
+        borderColor = if (overdue) Color(0xFFF87171).copy(alpha = 0.7f) else Color.White.copy(alpha = 0.25f),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -913,6 +931,29 @@ fun GlassTaskItemCard(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 StatusBadge(status = task.status)
+            }
+
+            if (task.deadlineTimestamp > 0L) {
+                val shortDeadline = remember(task.deadlineTimestamp, nowMillis / 60_000L, locale) {
+                    formatTaskShortDeadline(
+                        deadlineMillis = task.deadlineTimestamp,
+                        nowMillis = nowMillis,
+                        locale = locale,
+                        todayFormatter = { time -> context.getString(R.string.tk_today_short, time) },
+                        tomorrowFormatter = { time -> context.getString(R.string.tk_tomorrow_short, time) }
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (overdue) {
+                        stringResource(R.string.tk_home_overdue_label, shortDeadline)
+                    } else {
+                        stringResource(R.string.tk_home_deadline_date, shortDeadline)
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = if (overdue) FontWeight.Bold else FontWeight.Medium,
+                    color = if (overdue) Color(0xFFF87171) else AccentGold
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))

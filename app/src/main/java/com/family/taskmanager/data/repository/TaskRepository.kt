@@ -112,7 +112,10 @@ class TaskRepository @Inject constructor(
                 result = TaskActionResult.NOT_ALLOWED
                 return@withTransaction null
             }
-            if (task.title.isBlank() || task.points !in 0..MAX_TASK_POINTS) {
+            val now = System.currentTimeMillis()
+            if (task.title.isBlank() || task.points !in 0..MAX_TASK_POINTS ||
+                (task.deadlineTimestamp != 0L && task.deadlineTimestamp <= now)
+            ) {
                 result = TaskActionResult.INVALID_INPUT
                 return@withTransaction null
             }
@@ -166,7 +169,10 @@ class TaskRepository @Inject constructor(
                 result = TaskActionResult.NOT_ALLOWED
                 return@withTransaction null
             }
-            if (template.title.isBlank() || template.points !in 0..MAX_TASK_POINTS || ids.isEmpty()) {
+            val now = System.currentTimeMillis()
+            if (template.title.isBlank() || template.points !in 0..MAX_TASK_POINTS || ids.isEmpty() ||
+                (template.deadlineTimestamp != 0L && template.deadlineTimestamp <= now)
+            ) {
                 result = TaskActionResult.INVALID_INPUT
                 return@withTransaction null
             }
@@ -471,11 +477,15 @@ class TaskRepository @Inject constructor(
             val hasReviewerForNewAssignee = newAssignee != null && (
                 newAssignee!!.role != UserRole.ADMIN || hasOtherAdminInFamily(freshActor.familyId, newAssignee!!.id)
                 )
+            val now = System.currentTimeMillis()
             val error = when {
                 task == null -> TaskActionResult.NOT_FOUND
                 !TaskPermissions.canManage(freshActor, task) -> TaskActionResult.NOT_ALLOWED
                 task.status !in TaskPermissions.EDITABLE_STATUSES -> TaskActionResult.INVALID_STATE
                 title.isBlank() || points !in 0..MAX_TASK_POINTS -> TaskActionResult.INVALID_INPUT
+                deadlineTimestamp < 0L ||
+                    (deadlineTimestamp != task.deadlineTimestamp && deadlineTimestamp in 1..now) ->
+                    TaskActionResult.INVALID_INPUT
                 newAssigneeId.isNotEmpty() &&
                     !TaskPermissions.canAssignTo(freshActor, newAssignee, hasReviewerForNewAssignee) ->
                     TaskActionResult.INVALID_INPUT
