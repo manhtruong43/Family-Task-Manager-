@@ -322,9 +322,10 @@ fun RecurringScheduleSheet(
     }
 
     if (showEditor && isAdmin) {
+        val editor = prepareRecurringEditor(editorTarget, members, currentUserId)
         RecurringEditorDialog(
-            initial = editorTarget,
-            members = members.filter { it.id != currentUserId },
+            initial = editor.initial,
+            members = editor.assignableMembers,
             isProcessing = isProcessing,
             onDismiss = { showEditor = false },
             onConfirm = { input ->

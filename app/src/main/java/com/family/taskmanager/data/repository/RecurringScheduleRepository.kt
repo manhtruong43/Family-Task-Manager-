@@ -202,6 +202,8 @@ class RecurringScheduleRepository @Inject constructor(
      * (tránh vừa tạo xong đã có một nhiệm vụ quá hạn). Lần đầu sẽ là kỳ kế tiếp.
      */
     private fun skipTodayIfAlreadyPastDue(schedule: RecurringSchedule): RecurringSchedule {
+        // Sửa lịch đang tạm dừng không đánh dấu thêm kỳ; khi bật lại mới xử lý hạn của hôm nay.
+        if (!schedule.isActive) return schedule
         val zone = zone()
         val today = today()
         val todayEpoch = today.toEpochDay()
