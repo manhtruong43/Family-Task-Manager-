@@ -67,6 +67,31 @@ class RecurringProjectionTest {
         }
     }
 
+    @Test fun processedMarkers_areExcludedInBothModesAndFilters() {
+        for (mode in RecurringAssignmentMode.entries) {
+            for (mine in listOf(false, true)) {
+                for (marker in listOf(day.toEpochDay(), day.plusDays(2).toEpochDay())) {
+                    val processed = shared.copy(assignmentMode = mode, lastGeneratedEpochDay = marker)
+                    assertTrue("mode=$mode mine=$mine marker=$marker", project(processed, mine).isEmpty())
+                }
+                val upcoming = shared.copy(
+                    assignmentMode = mode, lastGeneratedEpochDay = day.minusDays(1).toEpochDay()
+                )
+                assertEquals(if (mode == RecurringAssignmentMode.EACH_MEMBER && !mine) 3 else 1,
+                    project(upcoming, mine).size)
+            }
+        }
+    }
+
+    @Test fun processedEmptyOccurrence_staysEmptyAfterMembersJoinOrModeChanges() {
+        val processed = each.copy(lastGeneratedEpochDay = day.toEpochDay())
+        for (mine in listOf(false, true)) {
+            assertTrue(project(processed, mine, mom, listOf(mom)).isEmpty())
+            assertTrue(project(processed, mine).isEmpty())
+            assertTrue(project(processed.copy(assignmentMode = RecurringAssignmentMode.SHARED), mine).isEmpty())
+        }
+    }
+
     @Test fun mixedSchedules_sumTasks_andOmitPausedOrEmptyOccurrences() {
         val direct = shared.copy(id = "direct", assignedToUserId = na.id)
         val paused = each.copy(id = "paused", isActive = false)

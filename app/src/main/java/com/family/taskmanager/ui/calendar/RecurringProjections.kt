@@ -16,7 +16,7 @@ internal fun projectedRecurringTasks(
     onlyMine: Boolean,
     zone: ZoneId = ZoneId.systemDefault()
 ): List<Task> = schedules.asSequence()
-    .filter { it.isActive && it.occursOn(date) }
+    .filter { it.isActive && it.occursOn(date) && date.toEpochDay() > it.lastGeneratedEpochDay }
     .flatMap { it.tasksForOccurrence(date, members, generatedAt = 0L, zone = zone).asSequence() }
     .filter { !onlyMine || TaskPermissions.isMine(viewer, it) }
     .sortedWith(compareBy<Task> { it.deadlineTimestamp }.thenBy { it.id })

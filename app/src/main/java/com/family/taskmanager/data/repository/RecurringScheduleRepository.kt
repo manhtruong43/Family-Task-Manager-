@@ -72,6 +72,11 @@ class RecurringScheduleRepository @Inject constructor(
      */
     internal var clock: Clock = Clock.systemDefaultZone()
 
+    /** Điểm phát push sau commit, tách riêng để kiểm tra lỗi dịch vụ hệ thống. */
+    internal var systemPushSender: (title: String, message: String) -> Unit = { title, message ->
+        notificationRepository.postNotification(title, message, NotificationRepository.Kind.TASK)
+    }
+
     private fun zone(): ZoneId = clock.zone
     private fun today(): LocalDate = LocalDate.now(clock)
     private fun nowMillis(): Long = clock.millis()
@@ -261,8 +266,14 @@ class RecurringScheduleRepository @Inject constructor(
         }
 
         createdTasks.mapNotNull { it.notification }.forEach { notification ->
-            notificationRepository.postNotification(
-                notification.title, notification.message, NotificationRepository.Kind.TASK
+            deliverCommittedSystemNotification(
+                post = { systemPushSender(notification.title, notification.message) },
+                onExpectedFailure = { error ->
+                    Log.w("RecurringScheduleRepo", "Inbox saved; system notification unavailable", error)
+                },
+                onUnexpectedFailure = { error ->
+                    Log.e("RecurringScheduleRepo", "Inbox saved; unexpected system notification failure", error)
+                }
             )
         }
         createdTasks.size
