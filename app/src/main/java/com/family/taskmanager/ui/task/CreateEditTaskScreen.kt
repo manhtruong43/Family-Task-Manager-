@@ -7,7 +7,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,13 +18,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -31,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -48,6 +55,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +67,7 @@ import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.repository.TaskActionResult
 import com.family.taskmanager.data.repository.TaskRepository
 import com.family.taskmanager.ui.home.HomeViewModel
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -89,44 +98,84 @@ fun CreateEditTaskScreen(
     val pointsValid = points != null && points in 0..TaskRepository.MAX_TASK_POINTS
     var selectedPriority by rememberSaveable { mutableStateOf(TaskPriority.MEDIUM) }
     
-    // Hạn chót mặc định: 23:59 ngày mai
+    // Hạn chót mặc định: 20:00 ngày mai (thay vì cố định 23:59)
     var selectedDeadlineTimestamp by rememberSaveable {
-        val cal = Calendar.getInstance().apply {
-            add(Calendar.DAY_OF_YEAR, 1)
-            set(Calendar.HOUR_OF_DAY, 23)
-            set(Calendar.MINUTE, 59)
-            set(Calendar.SECOND, 59)
-            set(Calendar.MILLISECOND, 0)
-        }
-        mutableLongStateOf(cal.timeInMillis)
+        mutableLongStateOf(defaultTaskDeadlineMillis())
     }
-    val context = LocalContext.current
-    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
+    var deadlineChangedByUser by rememberSaveable { mutableStateOf(false) }
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(10_000L)
+            nowMillis = System.currentTimeMillis()
+        }
+    }
 
-    // Tạo DatePickerDialog mỗi lần bấm để luôn mở đúng ngày đang chọn (kể cả sau khi xoay màn hình)
-    val showDatePicker: () -> Unit = {
+    val context = LocalContext.current
+    val locale: Locale = LocalConfiguration.current.locales[0]
+    val dateOnlyFormat = remember(locale) { SimpleDateFormat("dd/MM/yyyy", locale) }
+    val timeOnlyFormat = remember(locale) { SimpleDateFormat("HH:mm", locale) }
+    val deadlineValid = isDeadlineSelectionValid(
+        selectedDeadlineMillis = selectedDeadlineTimestamp,
+        isEditing = isEditing,
+        deadlineChangedByUser = deadlineChangedByUser,
+        nowMillis = nowMillis
+    )
+
+    val showTimePicker: () -> Unit = {
+        val current = Calendar.getInstance().apply {
+            if (selectedDeadlineTimestamp > 0L) {
+                timeInMillis = selectedDeadlineTimestamp
+            } else {
+                set(Calendar.HOUR_OF_DAY, DEFAULT_DEADLINE_HOUR)
+                set(Calendar.MINUTE, DEFAULT_DEADLINE_MINUTE)
+            }
+        }
+        TimePickerDialog(
+            context,
+            { _, hourOfDay, minute ->
+                val currentNow = System.currentTimeMillis()
+                nowMillis = currentNow
+                selectedDeadlineTimestamp = applySelectedTimePreservingDate(
+                    currentDeadlineMillis = selectedDeadlineTimestamp,
+                    hourOfDay = hourOfDay,
+                    minute = minute,
+                    nowMillis = currentNow
+                )
+                deadlineChangedByUser = true
+            },
+            current.get(Calendar.HOUR_OF_DAY),
+            current.get(Calendar.MINUTE),
+            true
+        ).show()
+    }
+
+    // Tạo DatePickerDialog mỗi lần bấm để luôn mở đúng ngày đang chọn (kể cả sau khi xoay màn hình),
+    // và GIỮ NGUYÊN giờ & phút đã chọn thay vì ép về 23:59.
+    val showDatePicker: (Boolean) -> Unit = { openTimeAfterDate ->
         val current = Calendar.getInstance().apply {
             timeInMillis = if (selectedDeadlineTimestamp > 0L) selectedDeadlineTimestamp else System.currentTimeMillis()
         }
         DatePickerDialog(
             context,
             { _, year, month, dayOfMonth ->
-                val cal = Calendar.getInstance().apply {
-                    set(Calendar.YEAR, year)
-                    set(Calendar.MONTH, month)
-                    set(Calendar.DAY_OF_MONTH, dayOfMonth)
-                    set(Calendar.HOUR_OF_DAY, 23)
-                    set(Calendar.MINUTE, 59)
-                    set(Calendar.SECOND, 59)
-                    set(Calendar.MILLISECOND, 0)
+                nowMillis = System.currentTimeMillis()
+                selectedDeadlineTimestamp = applySelectedDatePreservingTime(
+                    currentDeadlineMillis = selectedDeadlineTimestamp,
+                    year = year,
+                    month = month,
+                    dayOfMonth = dayOfMonth
+                )
+                deadlineChangedByUser = true
+                if (openTimeAfterDate) {
+                    showTimePicker()
                 }
-                selectedDeadlineTimestamp = cal.timeInMillis
             },
             current.get(Calendar.YEAR),
             current.get(Calendar.MONTH),
             current.get(Calendar.DAY_OF_MONTH)
         ).apply {
-            datePicker.minDate = System.currentTimeMillis() - 1000L // Không chọn ngày quá khứ
+            datePicker.minDate = startOfDayMillis(System.currentTimeMillis()) // Không chọn ngày quá khứ
         }.show()
     }
 
@@ -155,8 +204,9 @@ fun CreateEditTaskScreen(
             description = task.description
             pointsText = task.points.toString()
             selectedPriority = task.priority
-            // Giữ đúng cả giá trị 0 (việc không có hạn): chỉ đổi khi Bố/Mẹ tự chọn ngày mới
+            // Giữ đúng cả giá trị 0 (việc không có hạn) và đúng giờ cũ của nhiệm vụ
             selectedDeadlineTimestamp = task.deadlineTimestamp
+            deadlineChangedByUser = false
             selectedAssigneeId = task.assignedToUserId.ifEmpty { null }
             assigneeChangedByUser = false
             prefilled = true
@@ -369,12 +419,17 @@ fun CreateEditTaskScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Chọn hạn chót (Date Picker)
+            // Chọn hạn chót (Ngày + Giờ)
             Text(stringResource(R.string.task_deadline_label), fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedCard(
-                onClick = showDatePicker,
+                onClick = { showDatePicker(true) },
+                border = if (!deadlineValid) {
+                    BorderStroke(1.5.dp, MaterialTheme.colorScheme.error)
+                } else {
+                    CardDefaults.outlinedCardBorder()
+                },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -384,25 +439,29 @@ fun CreateEditTaskScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.DateRange,
                             contentDescription = stringResource(R.string.select_deadline_date),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (!deadlineValid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = if (selectedDeadlineTimestamp > 0L) {
-                                    dateFormat.format(Date(selectedDeadlineTimestamp))
+                                    formatTaskDeadlineForm(selectedDeadlineTimestamp, locale)
                                 } else {
                                     stringResource(R.string.tk_no_deadline)
                                 },
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
+                                fontSize = 15.sp,
+                                color = if (!deadlineValid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = stringResource(R.string.task_deadline_subtext),
+                                text = stringResource(R.string.tk_deadline_subtext),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -417,10 +476,74 @@ fun CreateEditTaskScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { showDatePicker(false) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DateRange,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (selectedDeadlineTimestamp > 0L) {
+                            stringResource(R.string.tk_change_date_fmt, dateOnlyFormat.format(Date(selectedDeadlineTimestamp)))
+                        } else {
+                            stringResource(R.string.tk_pick_date)
+                        },
+                        maxLines = 1,
+                        fontSize = 13.sp
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = showTimePicker,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (selectedDeadlineTimestamp > 0L) {
+                            stringResource(R.string.tk_change_time_fmt, timeOnlyFormat.format(Date(selectedDeadlineTimestamp)))
+                        } else {
+                            stringResource(R.string.tk_pick_time)
+                        },
+                        maxLines = 1,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            if (!deadlineValid) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.tk_deadline_past_error),
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp
+                )
+            }
+
             Spacer(modifier = Modifier.height(28.dp))
 
             Button(
                 onClick = {
+                    val clickNow = System.currentTimeMillis()
+                    nowMillis = clickNow
+                    if (!isDeadlineSelectionValid(selectedDeadlineTimestamp, isEditing, deadlineChangedByUser, clickNow)) {
+                        Toast.makeText(context, context.getString(R.string.tk_deadline_past_error), Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
                     isSaving = true
                     val handleResult: (TaskActionResult) -> Unit = { result ->
                         isSaving = false
@@ -479,8 +602,8 @@ fun CreateEditTaskScreen(
                         )
                     }
                 },
-                // Đang sửa mà việc đã bị xóa / chưa tải xong -> khóa nút
-                enabled = title.isNotBlank() && pointsValid && assigneeValid && !busy &&
+                // Đang sửa mà việc đã bị xóa / chưa tải xong, hoặc hạn chót đã qua -> khóa nút
+                enabled = title.isNotBlank() && pointsValid && assigneeValid && deadlineValid && !busy &&
                         (!isEditing || (editingTask != null && prefilled)),
                 modifier = Modifier
                     .fillMaxWidth()

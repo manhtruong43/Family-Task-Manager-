@@ -5,10 +5,21 @@ import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.model.UserRole
 import com.family.taskmanager.data.repository.TaskPermissions
+import com.family.taskmanager.ui.task.DEFAULT_DEADLINE_HOUR
+import com.family.taskmanager.ui.task.DEFAULT_DEADLINE_MINUTE
+import com.family.taskmanager.ui.task.applySelectedDatePreservingTime
+import com.family.taskmanager.ui.task.applySelectedTimePreservingDate
+import com.family.taskmanager.ui.task.defaultTaskDeadlineMillis
+import com.family.taskmanager.ui.task.formatTaskDeadlineDetail
+import com.family.taskmanager.ui.task.formatTaskDeadlineForm
+import com.family.taskmanager.ui.task.formatTaskShortDeadline
+import com.family.taskmanager.ui.task.isDeadlineSelectionValid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Calendar
+import java.util.Locale
 
 /**
  * Kiểm thử quy tắc phân quyền nhiệm vụ (unit test JVM - chạy nhanh, không cần máy ảo).
@@ -157,5 +168,103 @@ class TaskPermissionsTest {
         assertFalse(TaskPermissions.canAssignTo(parent, dad, hasOtherAdminForAssignee = false))
         assertTrue(TaskPermissions.canWork(bin, taskForEveryone, hasOtherAdminInFamily = false))
         assertTrue(TaskPermissions.canWork(na, taskForEveryone, hasOtherAdminInFamily = false))
+    }
+
+    // ─── Chọn giờ hạn chót & hiển thị hạn chót ───
+
+    @Test
+    fun defaultDeadline_isTomorrowAt2000_andChangingDatePreservesSelectedTime() {
+        val now = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 12, 14, 30, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        val defaultDeadline = defaultTaskDeadlineMillis(now)
+        val defaultCal = Calendar.getInstance().apply { timeInMillis = defaultDeadline }
+        assertEquals(2026, defaultCal.get(Calendar.YEAR))
+        assertEquals(Calendar.NOVEMBER, defaultCal.get(Calendar.MONTH))
+        assertEquals(13, defaultCal.get(Calendar.DAY_OF_MONTH))
+        assertEquals(DEFAULT_DEADLINE_HOUR, defaultCal.get(Calendar.HOUR_OF_DAY))
+        assertEquals(DEFAULT_DEADLINE_MINUTE, defaultCal.get(Calendar.MINUTE))
+
+        // Đổi giờ sang 18:45 trên ngày 13/11
+        val withCustomTime = applySelectedTimePreservingDate(defaultDeadline, 18, 45, now)
+        val timeCal = Calendar.getInstance().apply { timeInMillis = withCustomTime }
+        assertEquals(13, timeCal.get(Calendar.DAY_OF_MONTH))
+        assertEquals(18, timeCal.get(Calendar.HOUR_OF_DAY))
+        assertEquals(45, timeCal.get(Calendar.MINUTE))
+
+        // Đổi ngày sang 20/11 -> phải giữ nguyên giờ 18:45 (không bị ép về 23:59)
+        val withNewDate = applySelectedDatePreservingTime(withCustomTime, 2026, Calendar.NOVEMBER, 20)
+        val dateCal = Calendar.getInstance().apply { timeInMillis = withNewDate }
+        assertEquals(20, dateCal.get(Calendar.DAY_OF_MONTH))
+        assertEquals(18, dateCal.get(Calendar.HOUR_OF_DAY))
+        assertEquals(45, dateCal.get(Calendar.MINUTE))
+
+        // Nếu việc cũ không có hạn (0L) mà Bố/Mẹ chọn ngày mới -> đặt giờ mặc định 20:00
+        val fromNoDeadline = applySelectedDatePreservingTime(0L, 2026, Calendar.NOVEMBER, 25)
+        val fromNoDeadlineCal = Calendar.getInstance().apply { timeInMillis = fromNoDeadline }
+        assertEquals(25, fromNoDeadlineCal.get(Calendar.DAY_OF_MONTH))
+        assertEquals(DEFAULT_DEADLINE_HOUR, fromNoDeadlineCal.get(Calendar.HOUR_OF_DAY))
+        assertEquals(DEFAULT_DEADLINE_MINUTE, fromNoDeadlineCal.get(Calendar.MINUTE))
+    }
+
+    @Test
+    fun deadlineValidation_blocksPastSelection_butAllowsUnchangedOverdueWhenEditing() {
+        val now = 1_700_000_000_000L
+        val past = now - 60_000L
+        val future = now + 60_000L
+
+        // Tạo mới: chặn quá khứ, cho phép tương lai hoặc không đặt hạn (0L)
+        assertFalse(isDeadlineSelectionValid(past, isEditing = false, deadlineChangedByUser = false, nowMillis = now))
+        assertTrue(isDeadlineSelectionValid(future, isEditing = false, deadlineChangedByUser = false, nowMillis = now))
+        assertTrue(isDeadlineSelectionValid(0L, isEditing = false, deadlineChangedByUser = false, nowMillis = now))
+
+        // Sửa việc đã quá hạn mà giữ nguyên hạn cũ (deadlineChangedByUser = false) -> cho phép lưu
+        assertTrue(isDeadlineSelectionValid(past, isEditing = true, deadlineChangedByUser = false, nowMillis = now))
+        // Sửa việc mà đổi sang hạn ở quá khứ (deadlineChangedByUser = true) -> chặn
+        assertFalse(isDeadlineSelectionValid(past, isEditing = true, deadlineChangedByUser = true, nowMillis = now))
+        assertTrue(isDeadlineSelectionValid(future, isEditing = true, deadlineChangedByUser = true, nowMillis = now))
+    }
+
+    @Test
+    fun taskIsOverdue_andDeadlineFormatting_workCorrectly() {
+        val now = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 12, 15, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val today1900 = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 12, 19, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val today1400 = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 12, 14, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        val overdueTodo = taskForBin.copy(deadlineTimestamp = today1400, status = TaskStatus.TODO)
+        val overduePending = taskForBin.copy(deadlineTimestamp = today1400, status = TaskStatus.PENDING_APPROVAL)
+        val overdueCompleted = taskForBin.copy(deadlineTimestamp = today1400, status = TaskStatus.COMPLETED)
+        val futureTodo = taskForBin.copy(deadlineTimestamp = today1900, status = TaskStatus.TODO)
+        val noDeadlineTodo = taskForBin.copy(deadlineTimestamp = 0L, status = TaskStatus.TODO)
+
+        assertTrue(overdueTodo.isOverdue(now))
+        assertFalse(overduePending.isOverdue(now))
+        assertFalse(overdueCompleted.isOverdue(now))
+        assertFalse(futureTodo.isOverdue(now))
+        assertFalse(noDeadlineTodo.isOverdue(now))
+
+        assertEquals("19:00 12/11/2026", formatTaskDeadlineForm(today1900, Locale.US))
+        assertEquals("19:00 · 12/11/2026", formatTaskDeadlineDetail(today1900, Locale.US))
+        assertEquals(
+            "19:00 hôm nay",
+            formatTaskShortDeadline(
+                deadlineMillis = today1900,
+                nowMillis = now,
+                locale = Locale.US,
+                todayFormatter = { "$it hôm nay" },
+                tomorrowFormatter = { "$it ngày mai" }
+            )
+        )
     }
 }
