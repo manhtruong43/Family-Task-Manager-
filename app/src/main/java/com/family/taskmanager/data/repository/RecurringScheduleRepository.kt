@@ -9,6 +9,7 @@ import com.family.taskmanager.data.local.AppDatabase
 import com.family.taskmanager.data.local.RecurringScheduleDao
 import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.model.RecurringAssignmentMode
+import com.family.taskmanager.data.model.RecurringCreationRequest
 import com.family.taskmanager.data.model.RecurringSchedule
 import com.family.taskmanager.data.model.RepeatType
 import com.family.taskmanager.data.model.Task
@@ -29,11 +30,18 @@ import javax.inject.Singleton
 
 /** Kết quả các thao tác trên lịch trình (UI dịch sang thông báo tương ứng). */
 enum class RecurringResult {
-    SAVED, DELETED, PAUSED, RESUMED,
+    SAVED, ALREADY_CREATED, DELETED, PAUSED, RESUMED, PERSISTENCE_ERROR,
     NOT_ALLOWED, INVALID_TITLE, INVALID_POINTS, NO_DAYS, NOT_FOUND,
     /** Người nhận không hợp lệ, hoặc người được giao tự quản lý lịch trình của mình. */
     INVALID_ASSIGNEE
 }
+
+enum class CreationRequestStatus { NEW, COMMITTED, NOT_FOUND, NOT_ALLOWED }
+
+data class RecurringCreationLookup(
+    val status: CreationRequestStatus,
+    val schedule: RecurringSchedule? = null
+)
 
 /** Dữ liệu form tạo / sửa lịch trình. */
 data class RecurringScheduleInput(
@@ -84,11 +92,50 @@ class RecurringScheduleRepository @Inject constructor(
     fun observeSchedules(familyId: String): Flow<List<RecurringSchedule>> =
         dao.observeByFamily(familyId)
 
+    /** Đối chiếu trước khi cho sửa bản nháp khôi phục; không thay đổi lịch đã lưu. */
+    suspend fun resolveCreationRequest(actor: User, requestId: String): RecurringCreationLookup =
+        database.withTransaction {
+            val freshActor = freshManager(actor)
+                ?: return@withTransaction RecurringCreationLookup(CreationRequestStatus.NOT_ALLOWED)
+            val receipt = dao.getCreationRequest(requestId)
+                ?: return@withTransaction RecurringCreationLookup(CreationRequestStatus.NEW)
+            if (receipt.actorId != freshActor.id || receipt.familyId != freshActor.familyId) {
+                return@withTransaction RecurringCreationLookup(CreationRequestStatus.NOT_ALLOWED)
+            }
+            val schedule = dao.getById(receipt.scheduleId)
+                ?: return@withTransaction RecurringCreationLookup(CreationRequestStatus.NOT_FOUND)
+            if (schedule.familyId != freshActor.familyId) {
+                return@withTransaction RecurringCreationLookup(CreationRequestStatus.NOT_ALLOWED)
+            }
+            val members = database.userDao().getUsersByFamilySync(freshActor.familyId)
+            RecurringCreationLookup(CreationRequestStatus.COMMITTED, schedule.withCurrentManager(members))
+        }
+
     // ─────────────────────────── Quản lý lịch trình (Admin) ───────────────────────────
 
-    suspend fun saveSchedule(actor: User, editingId: String?, input: RecurringScheduleInput): RecurringResult {
+    suspend fun saveSchedule(
+        actor: User,
+        editingId: String?,
+        input: RecurringScheduleInput,
+        creationRequestId: String = UUID.randomUUID().toString()
+    ): RecurringResult {
         val result = database.withTransaction {
             val freshActor = freshManager(actor) ?: return@withTransaction RecurringResult.NOT_ALLOWED
+
+            if (editingId == null) {
+                if (creationRequestId.isBlank()) return@withTransaction RecurringResult.NOT_ALLOWED
+                val receipt = dao.getCreationRequest(creationRequestId)
+                if (receipt != null) {
+                    // Kiểm tra phiên hiện tại trước khi trả kết quả cũ; không sửa lịch khi phát lại yêu cầu.
+                    if (receipt.actorId != freshActor.id || receipt.familyId != freshActor.familyId) {
+                        return@withTransaction RecurringResult.NOT_ALLOWED
+                    }
+                    val committed = dao.getById(receipt.scheduleId)
+                        ?: return@withTransaction RecurringResult.NOT_FOUND
+                    if (committed.familyId != freshActor.familyId) return@withTransaction RecurringResult.NOT_ALLOWED
+                    return@withTransaction RecurringResult.ALREADY_CREATED
+                }
+            }
 
             val title = input.title.trim().take(RecurringSchedule.MAX_TITLE_LENGTH)
             if (title.isBlank()) return@withTransaction RecurringResult.INVALID_TITLE
@@ -141,10 +188,15 @@ class RecurringScheduleRepository @Inject constructor(
                 return@withTransaction RecurringResult.INVALID_ASSIGNEE
             }
             dao.upsert(skipTodayIfAlreadyPastDue(proposed))
+            if (editingId == null) {
+                dao.insertCreationRequest(
+                    RecurringCreationRequest(creationRequestId, freshActor.id, freshActor.familyId, proposed.id)
+                )
+            }
             RecurringResult.SAVED
         }
         // Sinh nhiệm vụ và gửi thông báo sau khi transaction lưu lịch đã hoàn tất.
-        if (result == RecurringResult.SAVED) generateAfterSave()
+        if (result == RecurringResult.SAVED || result == RecurringResult.ALREADY_CREATED) generateAfterSave()
         return result
     }
 

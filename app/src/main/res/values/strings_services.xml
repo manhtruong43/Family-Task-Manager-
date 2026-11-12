@@ -191,6 +191,16 @@
     <string name="rec_err_points">Điểm phải từ 1 đến %d</string>
     <string name="rec_err_days">Chọn ít nhất 1 ngày trong tuần</string>
     <string name="rec_err_general">Không tìm thấy lịch trình, vui lòng thử lại</string>
+    <string name="rec_err_storage">Chưa thể hoàn tất thao tác lưu trữ. Vui lòng thử lại.</string>
+    <string name="rec_err_management_transition">Bạn không thể quản lý lịch với cách giao này. Hãy chọn cách giao khác hoặc nhờ người quản lý lịch chỉnh sửa.</string>
+    <string name="rec_err_permission_changed">Lần lưu vừa rồi bị từ chối do quyền hoặc thành viên gia đình đã thay đổi. Vui lòng kiểm tra lại người nhận và cách giao việc.</string>
+    <string name="rec_retry">Thử lại</string>
+    <string name="rec_close">Đóng</string>
+    <string name="rec_recovered_title">Lịch trình đã được tạo</string>
+    <string name="rec_recovered_draft">Lịch trình này đã tồn tại. Bạn có thể tiếp tục sửa từ bản nháp của mình trên lịch đã lưu. Thay đổi chỉ được áp dụng khi bạn bấm Lưu.</string>
+    <string name="rec_interrupted_edit_title">Kiểm tra lại lần sửa bị gián đoạn</string>
+    <string name="rec_interrupted_edit_message">Ứng dụng đã bị đóng trước khi xác nhận lần lưu trước. Lịch và quyền hiện tại đã được tải lại. Bạn có thể xem lại bản nháp rồi chủ động lưu; ứng dụng chưa tự áp dụng lại thay đổi.</string>
+    <string name="rec_continue_edit">Tiếp tục sửa</string>
     <string name="rec_err_assignee">Không thể tự giao lịch trình cho chính mình (hoặc người nhận không còn trong gia đình). Lịch đang giao cho bạn thì nhờ Bố/Mẹ còn lại sửa.</string>
     <string name="rec_projected_header">🔁 Dự kiến từ lịch trình cố định (%d)</string>
     <string name="rec_projected_note">Sẽ tự tạo vào ngày này · hạn %s</string>

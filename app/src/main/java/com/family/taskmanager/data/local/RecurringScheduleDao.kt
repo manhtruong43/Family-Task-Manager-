@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.family.taskmanager.data.model.RecurringSchedule
+import com.family.taskmanager.data.model.RecurringCreationRequest
 import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.UserRole
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +31,13 @@ interface RecurringScheduleDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(schedule: RecurringSchedule)
+
+    @Query("SELECT * FROM recurring_creation_requests WHERE requestId = :requestId LIMIT 1")
+    suspend fun getCreationRequest(requestId: String): RecurringCreationRequest?
+
+    /** Chỉ chèn cùng transaction tạo lịch; xung đột phải rollback, không thay biên nhận cũ. */
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertCreationRequest(request: RecurringCreationRequest)
 
     @Query("DELETE FROM recurring_schedules WHERE id = :id")
     suspend fun deleteById(id: String)

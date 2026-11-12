@@ -48,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -107,7 +108,11 @@ fun CalendarScreen(
     val tasks by viewModel.familyTasks.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val members by viewModel.familyMembers.collectAsState()
-    val schedules by recurringViewModel.schedules.collectAsState()
+    val recurringList by recurringViewModel.scheduleState.collectAsState()
+    val schedules = if (recurringList.familyId == currentUser?.familyId) recurringList.schedules else emptyList()
+    val schedulesLoaded = recurringList.familyId == currentUser?.familyId && recurringList.loaded
+    val schedulesLoadFailed = recurringList.familyId == currentUser?.familyId && recurringList.loadFailed
+    val editorLookup by recurringViewModel.editorLookup.collectAsState()
     val recurringBusy by recurringViewModel.isProcessing.collectAsState()
     val recurringSaveState by recurringViewModel.saveState.collectAsState()
     val locale: Locale = LocalConfiguration.current.locales[0]
@@ -127,6 +132,8 @@ fun CalendarScreen(
             snackbarHostState.showSnackbar(
                 when (result) {
                     RecurringResult.SAVED -> context.getString(R.string.rec_msg_saved)
+                    RecurringResult.ALREADY_CREATED -> context.getString(R.string.rec_recovered_title)
+                    RecurringResult.PERSISTENCE_ERROR -> context.getString(R.string.rec_err_storage)
                     RecurringResult.DELETED -> context.getString(R.string.rec_msg_deleted)
                     RecurringResult.PAUSED -> context.getString(R.string.rec_msg_paused)
                     RecurringResult.RESUMED -> context.getString(R.string.rec_msg_resumed)
@@ -493,8 +500,10 @@ fun CalendarScreen(
         }
     }
 
-    if (showSchedules) {
+    // Giữ state khôi phục khi bảng đóng; tách riêng theo tài khoản và gia đình.
+    key(currentUser?.id, currentUser?.familyId) {
         RecurringScheduleSheet(
+            visible = showSchedules,
             schedules = schedules,
             isAdmin = isAdmin,
             currentUserId = currentUser?.id,
@@ -502,7 +511,12 @@ fun CalendarScreen(
             members = members,
             isProcessing = recurringBusy,
             saveState = recurringSaveState,
-            onDismiss = { showSchedules = false },
+            schedulesLoaded = schedulesLoaded,
+            schedulesLoadFailed = schedulesLoadFailed,
+            editorLookup = editorLookup,
+            onResolveEditor = { requestId, retry -> recurringViewModel.resolveEditor(currentUser, requestId, retry) },
+            onReloadSchedules = recurringViewModel::reloadSchedules,
+            onDismiss = { if (!recurringBusy) showSchedules = false },
             onSave = { requestId, editingId, input ->
                 recurringViewModel.save(currentUser, editingId, input, requestId)
             },
