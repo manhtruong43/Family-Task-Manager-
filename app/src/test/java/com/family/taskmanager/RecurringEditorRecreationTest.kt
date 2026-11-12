@@ -9,6 +9,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.family.taskmanager.data.model.*
 import com.family.taskmanager.data.repository.RecurringScheduleInput
+import com.family.taskmanager.data.repository.RecurringResult
+import com.family.taskmanager.ui.calendar.RecurringSaveState
 import com.family.taskmanager.ui.calendar.RecurringScheduleSheet
 import org.junit.Assert.*
 import org.junit.Rule
@@ -33,6 +35,7 @@ class RecurringEditorRecreationTest {
     )
     private val schedules = mutableStateOf(listOf(stored))
     private var saved: Pair<String?, RecurringScheduleInput>? = null
+    private val saveState = mutableStateOf<RecurringSaveState?>(null)
 
     // Cài lại cùng màn hình trên Activity mới; state bản nháp chỉ có thể đến từ saved instance state.
     private fun setSheetContent() {
@@ -41,8 +44,12 @@ class RecurringEditorRecreationTest {
                 MaterialTheme {
                     RecurringScheduleSheet(
                         schedules = schedules.value, isAdmin = true, currentUserId = mom.id,
-                        members = listOf(mom, na), isProcessing = false, onDismiss = {},
-                        onSave = { id, input, done -> saved = id to input; done() },
+                        members = listOf(mom, na), isProcessing = false, saveState = saveState.value,
+                        onDismiss = {},
+                        onSave = { requestId, id, input ->
+                            saved = id to input
+                            saveState.value = RecurringSaveState(requestId, RecurringResult.SAVED)
+                        },
                         onToggleActive = { _, _ -> }, onDelete = {}
                     )
                 }

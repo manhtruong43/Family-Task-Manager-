@@ -109,6 +109,7 @@ fun CalendarScreen(
     val members by viewModel.familyMembers.collectAsState()
     val schedules by recurringViewModel.schedules.collectAsState()
     val recurringBusy by recurringViewModel.isProcessing.collectAsState()
+    val recurringSaveState by recurringViewModel.saveState.collectAsState()
     val locale: Locale = LocalConfiguration.current.locales[0]
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -500,9 +501,10 @@ fun CalendarScreen(
             // Quyền quản lý cần cả danh sách mới nhất; màn nhập tự loại người đang thao tác.
             members = members,
             isProcessing = recurringBusy,
+            saveState = recurringSaveState,
             onDismiss = { showSchedules = false },
-            onSave = { editingId, input, onSaved ->
-                recurringViewModel.save(currentUser, editingId, input, onSaved)
+            onSave = { requestId, editingId, input ->
+                recurringViewModel.save(currentUser, editingId, input, requestId)
             },
             onToggleActive = { schedule, active ->
                 recurringViewModel.setActive(currentUser, schedule, active)

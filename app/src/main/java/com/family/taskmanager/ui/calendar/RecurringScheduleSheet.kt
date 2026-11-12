@@ -49,6 +49,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -78,10 +79,12 @@ import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.repository.RecurringScheduleInput
+import com.family.taskmanager.data.repository.RecurringResult
 import com.family.taskmanager.ui.theme.GlassCard
 
 import java.time.Instant
 import java.time.ZoneId
+import java.util.UUID
 
 private val SheetBackground = Color(0xFF1E1B4B)
 private val RecAccent = Color(0xFF22D3EE)
@@ -222,8 +225,9 @@ fun RecurringScheduleSheet(
     currentUserId: String?,
     members: List<User>,
     isProcessing: Boolean,
+    saveState: RecurringSaveState?,
     onDismiss: () -> Unit,
-    onSave: (editingId: String?, input: RecurringScheduleInput, onSaved: () -> Unit) -> Unit,
+    onSave: (requestId: String, editingId: String?, input: RecurringScheduleInput) -> Unit,
     onToggleActive: (RecurringSchedule, Boolean) -> Unit,
     onDelete: (RecurringSchedule) -> Unit
 ) {
@@ -231,7 +235,16 @@ fun RecurringScheduleSheet(
     var editorTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var showEditor by rememberSaveable { mutableStateOf(false) }
     val editorDrafts = rememberSaveableStateHolder()
+    var editorRequestId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var pendingDelete by remember { mutableStateOf<RecurringSchedule?>(null) }
+    val saveCompleted = saveState == RecurringSaveState(editorRequestId, RecurringResult.SAVED)
+
+    LaunchedEffect(saveState, editorRequestId) {
+        if (saveCompleted) {
+            showEditor = false
+            editorDrafts.removeState(editorRequestId)
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -266,6 +279,7 @@ fun RecurringScheduleSheet(
                 Button(
                     onClick = {
                         editorTargetId = null
+                        editorRequestId = UUID.randomUUID().toString()
                         showEditor = true
                     },
                     enabled = !isProcessing,
@@ -312,6 +326,7 @@ fun RecurringScheduleSheet(
                             onToggleActive = { active -> onToggleActive(schedule, active) },
                             onEdit = {
                                 editorTargetId = schedule.id
+                                editorRequestId = UUID.randomUUID().toString()
                                 showEditor = true
                             },
                             onDelete = { pendingDelete = schedule }
@@ -323,9 +338,10 @@ fun RecurringScheduleSheet(
         }
     }
 
-    if (showEditor && isAdmin) {
+    // Ẩn ngay khi thành công, trước cả effect dọn draft; không để một khung hình bấm Lưu lại.
+    if (showEditor && isAdmin && !saveCompleted) {
         val targetId = editorTargetId
-        val editorKey = targetId?.let { "schedule:$it" } ?: "new"
+        val editorKey = editorRequestId
         val target = schedules.firstOrNull { it.id == targetId }
         val closeEditor = {
             showEditor = false
@@ -349,7 +365,7 @@ fun RecurringScheduleSheet(
                     members = editor.assignableMembers,
                     isProcessing = isProcessing,
                     onDismiss = closeEditor,
-                    onConfirm = { input -> onSave(targetId, input, closeEditor) }
+                    onConfirm = { input -> onSave(editorRequestId, targetId, input) }
                 )
             }
         }

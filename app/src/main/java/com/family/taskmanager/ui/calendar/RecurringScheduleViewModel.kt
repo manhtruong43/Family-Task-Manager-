@@ -22,6 +22,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** Kết quả gắn với một phiên editor, giữ lại qua khoảng trống giữa hai Activity. */
+data class RecurringSaveState(val requestId: String, val result: RecurringResult? = null)
+
 /** Trạng thái và thao tác của phần "Lịch trình cố định" trên màn Lịch. */
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -48,11 +51,17 @@ class RecurringScheduleViewModel @Inject constructor(
     private val _results = MutableSharedFlow<RecurringResult>(extraBufferCapacity = 4)
     val results: SharedFlow<RecurringResult> = _results.asSharedFlow()
 
-    fun save(actor: User?, editingId: String?, input: RecurringScheduleInput, onSaved: () -> Unit) {
+    private val _saveState = MutableStateFlow<RecurringSaveState?>(null)
+    val saveState: StateFlow<RecurringSaveState?> = _saveState.asStateFlow()
+
+    fun save(actor: User?, editingId: String?, input: RecurringScheduleInput, requestId: String) {
         actor ?: return
+        // Giữ kết quả thành công để cả UI chưa kịp đóng cũng không tạo lại cùng yêu cầu.
+        if (_saveState.value == RecurringSaveState(requestId, RecurringResult.SAVED)) return
         runAction {
+            _saveState.value = RecurringSaveState(requestId)
             val result = repository.saveSchedule(actor, editingId, input)
-            if (result == RecurringResult.SAVED) onSaved()
+            _saveState.value = RecurringSaveState(requestId, result)
             result
         }
     }
@@ -69,8 +78,9 @@ class RecurringScheduleViewModel @Inject constructor(
 
     private fun runAction(block: suspend () -> RecurringResult) {
         if (_isProcessing.value) return
+        // Khóa ngay khi nhận thao tác, trước khi coroutine có cơ hội nhường luồng.
+        _isProcessing.value = true
         viewModelScope.launch {
-            _isProcessing.value = true
             try {
                 _results.emit(block())
             } finally {
