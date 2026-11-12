@@ -9,6 +9,7 @@ import com.family.taskmanager.data.model.*
 import com.family.taskmanager.data.repository.*
 import com.family.taskmanager.data.service.NotificationPreferences
 import com.family.taskmanager.data.service.PushNotificationService
+import com.family.taskmanager.ui.calendar.prepareRecurringEditor
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -165,6 +166,48 @@ class RecurringOwnershipRepositoryTest {
         assertEquals(dad.id, current().createdByUserId)
         assertTrue(current().canBeManagedBy(dad, members()))
         assertFalse(current().canBeManagedBy(db.userDao().getUserByIdSync(arriving.id)!!, members()))
+    }
+
+    @Test fun titleOnlyEditOfRecoveredPausedSchedule_preservesMarkerAndExistingTasks() = runBlocking<Unit> {
+        db.userDao().updateUser(mom.copy(familyId = ""))
+        schedules.clock = Clock.fixed(day.atTime(23, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC)
+        val legacy = each.copy(
+            title = "Lịch cũ", description = "Giữ mô tả", assignedToUserId = dad.id,
+            assignedToUserName = dad.name, points = 17, createdAt = 1000L,
+            lastGeneratedEpochDay = day.minusDays(2).toEpochDay(), assignmentMode = RecurringAssignmentMode.SHARED
+        )
+        db.recurringScheduleDao().upsert(legacy)
+        val oldTask = Task(
+            id = "existing-progress", title = "Việc cũ", familyId = "f", assignedToUserId = na.id,
+            createdByUserId = mom.id, status = TaskStatus.IN_PROGRESS, proofImageUrl = "keep.jpg", points = 17
+        )
+        db.taskDao().insertTask(oldTask)
+        assertTrue(legacy.canBeManagedBy(dad, members()))
+        val editor = prepareRecurringEditor(legacy, members(), dad.id)
+        val initial = editor.initial!!
+        assertEquals("", initial.assignedToUserId)
+        val form = RecurringScheduleInput(
+            title = initial.title, description = initial.description, assigneeId = initial.assignedToUserId,
+            priority = initial.priority, points = initial.points, repeatType = initial.repeatType,
+            daysOfWeekMask = initial.daysOfWeekMask, dueMinuteOfDay = initial.dueMinuteOfDay,
+            assignmentMode = initial.assignmentMode
+        )
+
+        // Không nới quyền repository: dữ liệu tự giao cũ vẫn phải bị từ chối.
+        assertEquals(
+            RecurringResult.INVALID_ASSIGNEE,
+            schedules.saveSchedule(dad, legacy.id, form.copy(assigneeId = dad.id))
+        )
+        assertEquals(legacy, current())
+
+        // Dùng đúng dữ liệu khởi tạo của editor và chỉ đổi tiêu đề.
+        assertEquals(RecurringResult.SAVED, schedules.saveSchedule(dad, legacy.id, form.copy(title = "Chỉ đổi tên")))
+        assertEquals(initial.copy(title = "Chỉ đổi tên"), current())
+        assertFalse(current().isActive)
+        assertEquals(legacy.lastGeneratedEpochDay, current().lastGeneratedEpochDay)
+        assertEquals(listOf(oldTask), db.taskDao().getTasksByFamily("f").first())
+        assertEquals(0, schedules.generateDueTasks())
+        assertEquals(listOf(oldTask), db.taskDao().getTasksByFamily("f").first())
     }
 
     @Test fun legacyDedicatedToSoleParent_canRecoverSafelyAsShared() = runBlocking<Unit> {
