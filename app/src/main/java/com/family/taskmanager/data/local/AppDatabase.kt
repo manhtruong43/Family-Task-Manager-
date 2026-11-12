@@ -5,6 +5,7 @@ import androidx.room.RoomDatabase
 import com.family.taskmanager.data.model.FamilyGroup
 import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.model.RecurringSchedule
+import com.family.taskmanager.data.model.RecurringCreationRequest
 import com.family.taskmanager.data.model.Reward
 import com.family.taskmanager.data.model.RewardRedemption
 import com.family.taskmanager.data.model.Task
@@ -20,9 +21,10 @@ import com.family.taskmanager.data.model.User
         RewardRedemption::class,
         NotificationItem::class,
         TaskReaction::class,
-        RecurringSchedule::class // Lịch trình cố định (Chức năng 6 - Dũng)
+        RecurringSchedule::class, // Lịch trình cố định (Chức năng 6 - Dũng)
+        RecurringCreationRequest::class
     ],
-    version = 7, // 6->7: recurring_schedules.assignmentMode (giữ nguyên dữ liệu và các kỳ đã sinh)
+    version = 8, // 7->8: biên nhận tạo lịch để không tạo trùng sau khi tiến trình bị tắt
     // Xuất schema ra app/schemas/ (cấu hình trong app/build.gradle.kts) để viết và kiểm tra migration
     exportSchema = true
 )

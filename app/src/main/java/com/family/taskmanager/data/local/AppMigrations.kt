@@ -60,5 +60,21 @@ object AppMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+    /** 7 -> 8: chỉ thêm biên nhận, không thay lịch, tiến độ, điểm hay dấu kỳ đã sinh. */
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS recurring_creation_requests (" +
+                    "requestId TEXT NOT NULL, actorId TEXT NOT NULL, familyId TEXT NOT NULL, " +
+                    "scheduleId TEXT NOT NULL, PRIMARY KEY(requestId), " +
+                    "FOREIGN KEY(familyId) REFERENCES family_groups(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_recurring_creation_requests_familyId " +
+                    "ON recurring_creation_requests(familyId)"
+            )
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
 }

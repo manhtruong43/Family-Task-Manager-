@@ -191,6 +191,16 @@
     <string name="rec_err_points">Points must be between 1 and %d</string>
     <string name="rec_err_days">Pick at least one day of the week</string>
     <string name="rec_err_general">Schedule not found, please try again</string>
+    <string name="rec_err_storage">The storage operation could not be completed. Please try again.</string>
+    <string name="rec_err_management_transition">You cannot manage this schedule with the selected assignment. Choose another assignment or ask its manager to make this change.</string>
+    <string name="rec_err_permission_changed">The last save was refused because permissions or family membership changed. Please check the assignee and assignment mode.</string>
+    <string name="rec_retry">Retry</string>
+    <string name="rec_close">Close</string>
+    <string name="rec_recovered_title">Schedule already created</string>
+    <string name="rec_recovered_draft">This schedule already exists. You can continue editing it from your draft. Changes are only applied when you press Save.</string>
+    <string name="rec_interrupted_edit_title">Review interrupted edit</string>
+    <string name="rec_interrupted_edit_message">The app closed before confirming the previous save. The current schedule and permissions have been reloaded. Review your draft before explicitly saving; changes have not been replayed.</string>
+    <string name="rec_continue_edit">Continue editing</string>
     <string name="rec_err_assignee">You cannot assign a schedule to yourself (or the assignee is no longer in the family). A schedule assigned to you must be edited by the other parent.</string>
     <string name="rec_projected_header">🔁 Planned from fixed schedules (%d)</string>
     <string name="rec_projected_note">Will be created on this day · due %s</string>

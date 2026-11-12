@@ -39,6 +39,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -54,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -71,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import com.family.taskmanager.R
 import com.family.taskmanager.data.model.RecurringAssignmentMode
 import com.family.taskmanager.data.model.RecurringSchedule
@@ -80,6 +83,7 @@ import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.data.repository.RecurringScheduleInput
 import com.family.taskmanager.data.repository.RecurringResult
+import com.family.taskmanager.data.repository.CreationRequestStatus
 import com.family.taskmanager.ui.theme.GlassCard
 
 import java.time.Instant
@@ -226,29 +230,84 @@ fun RecurringScheduleSheet(
     members: List<User>,
     isProcessing: Boolean,
     saveState: RecurringSaveState?,
+    schedulesLoaded: Boolean,
+    schedulesLoadFailed: Boolean,
+    editorLookup: RecurringEditorLookupState?,
+    onResolveEditor: (requestId: String, retry: Boolean) -> Unit,
+    onReloadSchedules: () -> Unit,
     onDismiss: () -> Unit,
-    onSave: (requestId: String, editingId: String?, input: RecurringScheduleInput) -> Unit,
+    onSave: (requestId: String, editingId: String?, input: RecurringScheduleInput) -> String?,
     onToggleActive: (RecurringSchedule, Boolean) -> Unit,
-    onDelete: (RecurringSchedule) -> Unit
+    onDelete: (RecurringSchedule) -> Unit,
+    visible: Boolean = true
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var editorTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var showEditor by rememberSaveable { mutableStateOf(false) }
     val editorDrafts = rememberSaveableStateHolder()
     var editorRequestId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var pendingDelete by remember { mutableStateOf<RecurringSchedule?>(null) }
-    val saveCompleted = saveState == RecurringSaveState(editorRequestId, RecurringResult.SAVED)
+    var pendingSaveId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingOperationId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Không phải một lần lưu đang chạy: giữ mã tạo chưa xác minh kể cả khi người dùng đóng bảng.
+    var unresolvedCreationId by rememberSaveable { mutableStateOf<String?>(null) }
+    var interruptedEditReview by rememberSaveable { mutableStateOf(false) }
+    val restoredPendingRequest = remember { pendingSaveId }
+    val restoredPendingOperation = remember { pendingOperationId }
+    val latestProcessing = rememberUpdatedState(isProcessing)
+    // Đọc State trực tiếp trong callback để chặn cả sự kiện đã xếp hàng trước lần vẽ tiếp theo.
+    val dismissBlocked = { latestProcessing.value || pendingSaveId != null }
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { value -> value != SheetValue.Hidden || !dismissBlocked() }
+    )
+    val saveCompleted = saveState?.requestId == editorRequestId && saveState.result == RecurringResult.SAVED
+
+    LaunchedEffect(pendingSaveId, pendingOperationId, saveState, editorLookup, isProcessing) {
+        val pending = pendingSaveId
+        if (pending != null) {
+            val matching = saveState?.takeIf {
+                it.requestId == pending && it.operationId == pendingOperationId
+            }
+            val terminal = matching != null && (matching.result != null || matching.cancelled)
+            val lostOperation = pending == restoredPendingRequest &&
+                pendingOperationId == restoredPendingOperation && !isProcessing && matching == null
+            if (editorTargetId == null && (lostOperation || matching?.cancelled == true ||
+                    matching?.result == RecurringResult.ALREADY_CREATED)) {
+                // Giữ yêu cầu đến khi người dùng xử lý kết quả tra cứu, kể cả khi bảng đã đóng.
+                unresolvedCreationId = pending
+            } else if (lostOperation) {
+                // ViewModel mới không còn coroutine cũ. Không coi là thành công, cũng không phát lại.
+                interruptedEditReview = true
+            }
+            if (terminal || lostOperation) {
+                pendingSaveId = null
+                pendingOperationId = null
+            }
+        }
+    }
 
     LaunchedEffect(saveState, editorRequestId) {
         if (saveCompleted) {
             showEditor = false
+            interruptedEditReview = false
+            if (unresolvedCreationId == editorRequestId) unresolvedCreationId = null
             editorDrafts.removeState(editorRequestId)
         }
     }
 
+    LaunchedEffect(visible, showEditor, editorTargetId, editorRequestId, editorLookup, isProcessing, currentUserId) {
+        if (visible && showEditor && editorTargetId == null && !saveCompleted && !isProcessing) {
+            onResolveEditor(editorRequestId, false)
+        }
+    }
+
+    // Host giữ composable này khi ẩn để bản nháp và mã yêu cầu chưa xác minh không bị vứt bỏ.
+    if (!visible) return
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!dismissBlocked()) onDismiss() },
         sheetState = sheetState,
+        // Back vẫn được dispatcher nhận; guard và confirmValueChange chặn đóng theo State mới nhất.
         containerColor = SheetBackground,
         contentColor = Color.White
     ) {
@@ -279,10 +338,12 @@ fun RecurringScheduleSheet(
                 Button(
                     onClick = {
                         editorTargetId = null
-                        editorRequestId = UUID.randomUUID().toString()
+                        interruptedEditReview = false
+                        editorRequestId = unresolvedCreationId ?: UUID.randomUUID().toString()
                         showEditor = true
+                        if (unresolvedCreationId != null) onResolveEditor(editorRequestId, true)
                     },
-                    enabled = !isProcessing,
+                    enabled = !dismissBlocked(),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -293,7 +354,23 @@ fun RecurringScheduleSheet(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            if (schedules.isEmpty()) {
+            if (schedulesLoadFailed) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(stringResource(R.string.rec_err_storage), color = RecRed, textAlign = TextAlign.Center)
+                    TextButton(onClick = onReloadSchedules) {
+                        Text(stringResource(R.string.rec_retry), color = RecAccent)
+                    }
+                }
+            } else if (!schedulesLoaded) {
+                Text(
+                    stringResource(R.string.home_loading),
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(vertical = 24.dp)
+                )
+            } else if (schedules.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -322,10 +399,11 @@ fun RecurringScheduleSheet(
                             canManage = isAdmin && schedule.canBeManagedBy(
                                 members.firstOrNull { it.id == currentUserId }, members
                             ),
-                            enabled = !isProcessing,
+                            enabled = !dismissBlocked(),
                             onToggleActive = { active -> onToggleActive(schedule, active) },
                             onEdit = {
                                 editorTargetId = schedule.id
+                                interruptedEditReview = false
                                 editorRequestId = UUID.randomUUID().toString()
                                 showEditor = true
                             },
@@ -338,35 +416,118 @@ fun RecurringScheduleSheet(
         }
     }
 
-    // Ẩn ngay khi thành công, trước cả effect dọn draft; không để một khung hình bấm Lưu lại.
     if (showEditor && isAdmin && !saveCompleted) {
         val targetId = editorTargetId
         val editorKey = editorRequestId
         val target = schedules.firstOrNull { it.id == targetId }
+        val lookupState = editorLookup?.takeIf { it.requestId == editorRequestId }
+        val lookup = lookupState?.lookup
+        val actionResult = saveState?.takeIf { it.requestId == editorRequestId }?.result
+        val permissionRejected = actionResult == RecurringResult.NOT_ALLOWED ||
+            actionResult == RecurringResult.INVALID_ASSIGNEE
         val closeEditor = {
-            showEditor = false
-            editorDrafts.removeState(editorKey)
-        }
-        // ID chưa tải được không phải lịch mới. Giữ draft trong holder qua khoảng chờ này.
-        if ((targetId != null && target == null) || members.none { it.id == currentUserId }) {
-            AlertDialog(
-                onDismissRequest = closeEditor,
-                title = { Text(stringResource(R.string.rec_dialog_edit)) },
-                text = { Text(stringResource(R.string.home_loading)) },
-                confirmButton = {
-                    TextButton(onClick = closeEditor) { Text(stringResource(R.string.rec_cancel)) }
+            if (!dismissBlocked()) {
+                showEditor = false
+                interruptedEditReview = false
+                val keepUnverifiedCreation = unresolvedCreationId == editorKey && lookup == null
+                if (!keepUnverifiedCreation) {
+                    if (unresolvedCreationId == editorKey) unresolvedCreationId = null
+                    editorDrafts.removeState(editorKey)
                 }
+            }
+        }
+        val titleRes = if (targetId == null) R.string.rec_dialog_create else R.string.rec_dialog_edit
+
+        when {
+            targetId == null && lookupState?.failed == true -> RecurringEditorMessage(
+                titleRes, R.string.rec_err_storage, closeEditor, dismissBlocked = dismissBlocked(),
+                onRetry = { onResolveEditor(editorRequestId, true) }
             )
-        } else {
-            val editor = prepareRecurringEditor(target, members, currentUserId)
-            editorDrafts.SaveableStateProvider(editorKey) {
-                RecurringEditorDialog(
-                    initial = editor.initial,
-                    members = editor.assignableMembers,
-                    isProcessing = isProcessing,
-                    onDismiss = closeEditor,
-                    onConfirm = { input -> onSave(editorRequestId, targetId, input) }
+            targetId == null && lookup?.status == CreationRequestStatus.NOT_FOUND -> RecurringEditorMessage(
+                titleRes, R.string.rec_err_general, closeEditor, dismissBlocked = dismissBlocked()
+            )
+            targetId == null && lookup?.status == CreationRequestStatus.NOT_ALLOWED -> RecurringEditorMessage(
+                titleRes, R.string.rec_err_not_allowed, closeEditor, dismissBlocked = dismissBlocked()
+            )
+            targetId != null && !schedulesLoaded && schedulesLoadFailed -> RecurringEditorMessage(
+                titleRes, R.string.rec_err_storage, closeEditor, dismissBlocked = dismissBlocked(), onRetry = onReloadSchedules
+            )
+            (targetId == null && lookup == null) ||
+                (targetId != null && !schedulesLoaded) ||
+                (members.none { it.id == currentUserId } && !permissionRejected && !interruptedEditReview) -> RecurringEditorMessage(
+                    titleRes, R.string.home_loading, closeEditor, loading = true, dismissBlocked = dismissBlocked()
                 )
+            targetId != null && target == null -> RecurringEditorMessage(
+                titleRes, R.string.rec_err_general, closeEditor, dismissBlocked = dismissBlocked()
+            )
+            targetId != null && interruptedEditReview -> {
+                val canEdit = target?.canBeManagedBy(members.firstOrNull { it.id == currentUserId }, members) == true
+                AlertDialog(
+                    onDismissRequest = closeEditor,
+                    title = { Text(stringResource(R.string.rec_interrupted_edit_title)) },
+                    text = { Text(stringResource(
+                        if (canEdit) R.string.rec_interrupted_edit_message else R.string.rec_err_permission_changed
+                    )) },
+                    confirmButton = {
+                        if (canEdit) TextButton(onClick = { interruptedEditReview = false }) {
+                            Text(stringResource(R.string.rec_continue_edit))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = closeEditor) { Text(stringResource(R.string.rec_close)) }
+                    }
+                )
+            }
+            targetId == null && lookup?.status == CreationRequestStatus.COMMITTED -> {
+                val committed = requireNotNull(lookup.schedule)
+                val canEdit = committed.canBeManagedBy(members.firstOrNull { it.id == currentUserId }, members)
+                AlertDialog(
+                    onDismissRequest = closeEditor,
+                    properties = DialogProperties(dismissOnBackPress = !dismissBlocked(), dismissOnClickOutside = !dismissBlocked()),
+                    title = { Text(stringResource(R.string.rec_recovered_title)) },
+                    text = { Text(stringResource(
+                        if (canEdit) R.string.rec_recovered_draft else R.string.rec_err_assignee
+                    )) },
+                    confirmButton = {
+                        if (canEdit) TextButton(enabled = !dismissBlocked(), onClick = {
+                            if (!dismissBlocked()) {
+                                editorTargetId = committed.id
+                                if (unresolvedCreationId == editorKey) unresolvedCreationId = null
+                            }
+                            // Luôn giữ key và draft đã lưu; ViewModel mới không biết các thay đổi chưa áp dụng.
+                            // Chỉ chuyển sang sửa đúng lịch trong biên nhận, không tạo yêu cầu mới.
+                        }) {
+                            Text(stringResource(R.string.rec_continue_edit))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(enabled = !dismissBlocked(), onClick = closeEditor) { Text(stringResource(R.string.rec_close)) }
+                    }
+                )
+            }
+            else -> {
+                val editor = prepareRecurringEditor(target, members, currentUserId)
+                editorDrafts.SaveableStateProvider(editorKey) {
+                    RecurringEditorDialog(
+                        initial = editor.initial,
+                        members = editor.assignableMembers,
+                        familyMembers = members,
+                        currentUserId = currentUserId,
+                        isProcessing = dismissBlocked(),
+                        actionResult = actionResult,
+                        onDismiss = closeEditor,
+                        onConfirm = { input ->
+                            if (showEditor && editorRequestId == editorKey && !dismissBlocked()) {
+                                interruptedEditReview = false
+                                pendingSaveId = editorKey
+                                pendingOperationId = null
+                                val operation = onSave(editorKey, targetId, input)
+                                if (operation == null) pendingSaveId = null
+                                else pendingOperationId = operation
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -394,6 +555,34 @@ fun RecurringScheduleSheet(
             }
         )
     }
+}
+
+@Composable
+private fun RecurringEditorMessage(
+    titleRes: Int,
+    messageRes: Int,
+    onDismiss: () -> Unit,
+    loading: Boolean = false,
+    dismissBlocked: Boolean = false,
+    onRetry: (() -> Unit)? = null
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = !dismissBlocked, dismissOnClickOutside = !dismissBlocked),
+        title = { Text(stringResource(titleRes)) },
+        text = { Text(stringResource(messageRes)) },
+        confirmButton = {
+            TextButton(enabled = onRetry != null || !dismissBlocked, onClick = onRetry ?: onDismiss) {
+                Text(stringResource(
+                    if (onRetry != null) R.string.rec_retry
+                    else if (loading) R.string.rec_cancel else R.string.rec_close
+                ))
+            }
+        },
+        dismissButton = {
+            if (onRetry != null) TextButton(enabled = !dismissBlocked, onClick = onDismiss) { Text(stringResource(R.string.rec_close)) }
+        }
+    )
 }
 
 @Composable
@@ -502,7 +691,10 @@ private fun ScheduleCard(
 private fun RecurringEditorDialog(
     initial: RecurringSchedule?,
     members: List<User>,
+    familyMembers: List<User>,
+    currentUserId: String?,
     isProcessing: Boolean,
+    actionResult: RecurringResult?,
     onDismiss: () -> Unit,
     onConfirm: (RecurringScheduleInput) -> Unit
 ) {
@@ -528,10 +720,18 @@ private fun RecurringEditorDialog(
     val points = pointsText.toIntOrNull()
     val pointsValid = points != null && points in 1..RecurringSchedule.MAX_POINTS
     val daysValid = repeatType == RepeatType.DAILY || daysMask != 0
-    val canSave = title.isNotBlank() && pointsValid && daysValid && !isProcessing
+    val canManageDraft = canManageRecurringDraft(initial, currentUserId, familyMembers, assigneeId, assignmentMode)
+    val canSave = title.isNotBlank() && pointsValid && daysValid && canManageDraft && !isProcessing
+    val resultMessage = when (actionResult) {
+        RecurringResult.PERSISTENCE_ERROR -> R.string.rec_err_storage
+        RecurringResult.NOT_ALLOWED, RecurringResult.INVALID_ASSIGNEE -> R.string.rec_err_permission_changed
+        RecurringResult.NOT_FOUND -> R.string.rec_err_general
+        else -> null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = !isProcessing, dismissOnClickOutside = !isProcessing),
         containerColor = SheetBackground,
         titleContentColor = Color.White,
         textContentColor = Color.White,
@@ -543,8 +743,13 @@ private fun RecurringEditorDialog(
         },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (resultMessage != null) {
+                    Text(stringResource(resultMessage), color = RecRed)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 OutlinedTextField(
                     value = title,
+                    enabled = !isProcessing,
                     onValueChange = { title = it.take(RecurringSchedule.MAX_TITLE_LENGTH) },
                     label = { Text(stringResource(R.string.rec_field_title)) },
                     singleLine = true,
@@ -555,6 +760,7 @@ private fun RecurringEditorDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = description,
+                    enabled = !isProcessing,
                     onValueChange = { description = it.take(RecurringSchedule.MAX_DESCRIPTION_LENGTH) },
                     label = { Text(stringResource(R.string.rec_field_description)) },
                     maxLines = 3,
@@ -565,6 +771,7 @@ private fun RecurringEditorDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = pointsText,
+                    enabled = !isProcessing,
                     onValueChange = { input -> pointsText = input.filter { it.isDigit() }.take(4) },
                     label = { Text(stringResource(R.string.rec_field_points)) },
                     singleLine = true,
@@ -584,6 +791,7 @@ private fun RecurringEditorDialog(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         FilterChip(
+                            enabled = !isProcessing,
                             selected = assigneeId.isEmpty(),
                             onClick = { assigneeId = "" },
                             label = { Text(stringResource(R.string.rec_everyone)) },
@@ -592,6 +800,7 @@ private fun RecurringEditorDialog(
                     }
                     items(assignableMembers, key = { it.id }) { member ->
                         FilterChip(
+                            enabled = !isProcessing,
                             selected = assigneeId == member.id,
                             onClick = { assigneeId = member.id },
                             label = { Text("${member.avatarUrl} ${member.name}", maxLines = 1) },
@@ -604,6 +813,7 @@ private fun RecurringEditorDialog(
                     SectionLabel(stringResource(R.string.rec_field_assignment_mode))
                     RecurringAssignmentMode.entries.forEach { mode ->
                         FilterChip(
+                            enabled = !isProcessing,
                             selected = assignmentMode == mode,
                             onClick = { assignmentMode = mode },
                             label = {
@@ -628,6 +838,10 @@ private fun RecurringEditorDialog(
                         fontSize = 12.sp
                     )
                 }
+                if (!canManageDraft) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(stringResource(R.string.rec_err_management_transition), color = RecRed, fontSize = 12.sp)
+                }
                 if (initial != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -642,6 +856,7 @@ private fun RecurringEditorDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TaskPriority.entries.forEach { value ->
                         FilterChip(
+                            enabled = !isProcessing,
                             selected = priority == value,
                             onClick = { priority = value },
                             label = { Text(stringResource(priorityLabel(value))) },
@@ -654,12 +869,14 @@ private fun RecurringEditorDialog(
                 SectionLabel(stringResource(R.string.rec_field_repeat))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
+                            enabled = !isProcessing,
                         selected = repeatType == RepeatType.DAILY,
                         onClick = { repeatType = RepeatType.DAILY },
                         label = { Text(stringResource(R.string.rec_repeat_type_daily)) },
                         colors = recChipColors()
                     )
                     FilterChip(
+                            enabled = !isProcessing,
                         selected = repeatType == RepeatType.WEEKLY,
                         onClick = { repeatType = RepeatType.WEEKLY },
                         label = { Text(stringResource(R.string.rec_repeat_type_weekly)) },
@@ -677,6 +894,7 @@ private fun RecurringEditorDialog(
                             DayToggle(
                                 label = label,
                                 selected = RecurringSchedule.isDaySelected(daysMask, index),
+                                enabled = !isProcessing,
                                 onClick = { daysMask = RecurringSchedule.toggleDay(daysMask, index) }
                             )
                         }
@@ -692,6 +910,7 @@ private fun RecurringEditorDialog(
                     stringResource(R.string.rec_field_due, RecurringSchedule.formatMinuteOfDay(dueMinute))
                 )
                 OutlinedButton(
+                    enabled = !isProcessing,
                     onClick = {
                         TimePickerDialog(
                             context,
@@ -736,7 +955,7 @@ private fun RecurringEditorDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(enabled = !isProcessing, onClick = onDismiss) {
                 Text(stringResource(R.string.rec_cancel), color = Color.White.copy(alpha = 0.8f))
             }
         }
@@ -751,14 +970,14 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun DayToggle(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun DayToggle(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(34.dp)
             .clip(CircleShape)
             .background(if (selected) RecAccent else Color.White.copy(alpha = 0.08f))
             .border(1.dp, if (selected) RecAccent else Color.White.copy(alpha = 0.3f), CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(

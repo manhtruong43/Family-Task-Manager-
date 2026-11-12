@@ -10,6 +10,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.family.taskmanager.data.model.*
 import com.family.taskmanager.data.repository.RecurringScheduleInput
 import com.family.taskmanager.data.repository.RecurringResult
+import com.family.taskmanager.data.repository.RecurringCreationLookup
+import com.family.taskmanager.data.repository.CreationRequestStatus
+import com.family.taskmanager.ui.calendar.RecurringEditorLookupState
 import com.family.taskmanager.ui.calendar.RecurringSaveState
 import com.family.taskmanager.ui.calendar.RecurringScheduleSheet
 import org.junit.Assert.*
@@ -35,7 +38,13 @@ class RecurringEditorRecreationTest {
     )
     private val schedules = mutableStateOf(listOf(stored))
     private var saved: Pair<String?, RecurringScheduleInput>? = null
+    private var acceptSave = true
+    private var completeSaveImmediately = true
+    private var operationCount = 0
+    private var lastRequestId: String? = null
     private val saveState = mutableStateOf<RecurringSaveState?>(null)
+    private val loaded = mutableStateOf(true)
+    private val lookup = mutableStateOf<RecurringEditorLookupState?>(null)
 
     // Cài lại cùng màn hình trên Activity mới; state bản nháp chỉ có thể đến từ saved instance state.
     private fun setSheetContent() {
@@ -45,10 +54,25 @@ class RecurringEditorRecreationTest {
                     RecurringScheduleSheet(
                         schedules = schedules.value, isAdmin = true, currentUserId = mom.id,
                         members = listOf(mom, na), isProcessing = false, saveState = saveState.value,
+                        schedulesLoaded = loaded.value, schedulesLoadFailed = false,
+                        editorLookup = lookup.value,
+                        onResolveEditor = { id, _ ->
+                            lookup.value = RecurringEditorLookupState(id, RecurringCreationLookup(CreationRequestStatus.NEW))
+                        },
+                        onReloadSchedules = { loaded.value = true },
                         onDismiss = {},
                         onSave = { requestId, id, input ->
-                            saved = id to input
-                            saveState.value = RecurringSaveState(requestId, RecurringResult.SAVED)
+                            if (!acceptSave) null else {
+                                saved = id to input
+                                lastRequestId = requestId
+                                val operation = "fake-" + ++operationCount
+                                if (completeSaveImmediately) {
+                                    saveState.value = RecurringSaveState(
+                                        requestId, RecurringResult.SAVED, operationId = operation
+                                    )
+                                }
+                                operation
+                            }
                         },
                         onToggleActive = { _, _ -> }, onDelete = {}
                     )
@@ -113,18 +137,86 @@ class RecurringEditorRecreationTest {
         setSheetContent()
         compose.onNodeWithContentDescription(label(R.string.rec_edit)).performClick()
         changeDraft()
-        compose.runOnIdle { schedules.value = emptyList() }
+        compose.runOnIdle { loaded.value = false; schedules.value = emptyList() }
         compose.activityRule.scenario.recreate()
         setSheetContent()
 
         // Khi ID cũ chưa tải lại thì không được mở form tạo mới hoặc cho Lưu.
-        compose.onNodeWithText(label(R.string.home_loading)).assertExists()
+        compose.onAllNodesWithText(label(R.string.home_loading)).onFirst().assertExists()
         compose.onNodeWithText(label(R.string.rec_dialog_create)).assertDoesNotExist()
         compose.onNodeWithText(label(R.string.rec_save)).assertDoesNotExist()
 
-        compose.runOnIdle { schedules.value = listOf(stored) }
+        compose.runOnIdle { schedules.value = listOf(stored); loaded.value = true }
         compose.waitForIdle()
         assertDraftAndSave(stored.id)
+    }
+
+    @Test fun deletedWhileEditing_showsNotFoundInsteadOfLoading() {
+        setSheetContent()
+        compose.onNodeWithContentDescription(label(R.string.rec_edit)).performClick()
+        replaceField(R.string.rec_field_title, "Unsaved edit")
+        compose.runOnIdle { schedules.value = emptyList() }
+        compose.onNodeWithText(label(R.string.rec_err_general)).assertExists()
+        compose.onNodeWithText(label(R.string.home_loading)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.rec_save)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.rec_close)).performClick()
+        compose.onNodeWithText(label(R.string.rec_err_general)).assertDoesNotExist()
+    }
+
+    @Test fun restoringDeletedTarget_showsNotFoundAndCanDismiss() {
+        setSheetContent()
+        compose.onNodeWithContentDescription(label(R.string.rec_edit)).performClick()
+        replaceField(R.string.rec_field_title, "Unsaved edit")
+        compose.runOnIdle { schedules.value = emptyList() }
+        compose.activityRule.scenario.recreate()
+        setSheetContent()
+        compose.onNodeWithText(label(R.string.rec_err_general)).assertExists()
+        compose.onNodeWithText(label(R.string.home_loading)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.rec_close)).performClick()
+        compose.onNodeWithText(label(R.string.rec_add)).performClick()
+        compose.onNodeWithText("Unsaved edit").assertDoesNotExist()
+    }
+
+    @Test fun mainList_distinguishesLoadingFromConfirmedEmpty() {
+        loaded.value = false
+        schedules.value = emptyList()
+        setSheetContent()
+        compose.onNodeWithText(label(R.string.home_loading)).assertExists()
+        compose.onNodeWithText(label(R.string.rec_empty_admin)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.rec_retry)).assertDoesNotExist()
+        compose.runOnIdle { loaded.value = true }
+        compose.onNodeWithText(label(R.string.rec_empty_admin)).assertExists()
+        compose.onNodeWithText(label(R.string.home_loading)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.rec_retry)).assertDoesNotExist()
+    }
+
+    @Test fun acceptedSave_locksBeforeBusyStateArrives() {
+        completeSaveImmediately = false
+        setSheetContent()
+        compose.onNodeWithText(label(R.string.rec_add)).performClick()
+        replaceField(R.string.rec_field_title, "Immediate lock")
+        compose.onNodeWithText(label(R.string.rec_save)).performClick()
+        // Host vẫn truyền isProcessing=false: khóa phải có hiệu lực ngay khi nhận lần thử.
+        compose.onNodeWithText(label(R.string.rec_cancel)).assertIsNotEnabled()
+        compose.onNodeWithText(label(R.string.rec_save)).assertIsNotEnabled()
+        compose.runOnIdle {
+            saveState.value = RecurringSaveState(
+                requireNotNull(lastRequestId), RecurringResult.SAVED, operationId = "fake-1"
+            )
+        }
+        compose.onNodeWithText(label(R.string.rec_save)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.rec_add)).assertIsEnabled()
+    }
+
+    @Test fun rejectedSave_doesNotLeaveDismissalLocked() {
+        acceptSave = false
+        setSheetContent()
+        compose.onNodeWithText(label(R.string.rec_add)).performClick()
+        replaceField(R.string.rec_field_title, "Rejected attempt")
+        compose.onNodeWithText(label(R.string.rec_save)).performClick()
+        compose.onNodeWithText(label(R.string.rec_cancel)).assertIsEnabled().performClick()
+        compose.onNodeWithText(label(R.string.rec_save)).assertDoesNotExist()
+        compose.onNodeWithText(label(R.string.rec_add)).assertIsEnabled()
     }
 
     @Test fun cancellingDraft_thenReopeningDoesNotRestoreDiscardedValues() {

@@ -8,6 +8,7 @@ import androidx.room.Room
 import com.family.taskmanager.data.local.AppDatabase
 import com.family.taskmanager.data.local.AppMigrations
 import com.family.taskmanager.data.model.RecurringAssignmentMode
+import com.family.taskmanager.data.model.RecurringCreationRequest
 import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.repository.NotificationRepository
 import com.family.taskmanager.data.repository.RecurringScheduleRepository
@@ -29,7 +30,7 @@ import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-/** Fixture trên đĩa từ schema 6 đã commit; Room phải thực sự chạy migration và validate schema 7. */
+/** Fixture trên đĩa từ schema cũ đã commit; Room phải chạy migration và validate schema hiện tại. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = Application::class)
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
@@ -56,17 +57,17 @@ class RecurringMigrationTest {
             .allowMainThreadQueries()
             .build().also { room = it }
 
-    @Test fun migrate6to7_preservesOccurrences() = runBlocking<Unit> {
-        createVersion6Fixture()
+    @Test fun migrate6toLatest_preservesOccurrences() = runBlocking<Unit> {
+        createFixture(6)
         assertTrue(context.getDatabasePath(databaseName).isFile)
         var db = openRoom()
-        assertEquals(7, db.openHelper.writableDatabase.version) // upgrade + Room validation
+        assertEquals(8, db.openHelper.writableDatabase.version) // upgrade + Room validation
 
         // Đóng/mở lại để kiểm tra cả identity/schema của DB đã được nâng cấp.
         db.close()
         room = null
         db = openRoom()
-        assertEquals(7, db.openHelper.writableDatabase.version)
+        assertEquals(8, db.openHelper.writableDatabase.version)
         val schedules = db.recurringScheduleDao().observeByFamily(family).first()
         assertEquals(2, schedules.size)
         assertTrue(schedules.all { it.assignmentMode == RecurringAssignmentMode.SHARED })
@@ -109,12 +110,39 @@ class RecurringMigrationTest {
         assertEquals(dedicatedProgress, db.taskDao().getTaskById(oldDedicatedId))
     }
 
-    private fun createVersion6Fixture() {
+    @Test fun migrate7to8_keepsData() = runBlocking<Unit> {
+        createFixture(7)
+        var db = openRoom()
+        assertEquals(8, db.openHelper.writableDatabase.version)
+        val schedules = db.recurringScheduleDao().getByFamilyOnce(family)
+        val tasks = db.taskDao().getTasksByFamily(family).first().sortedBy { it.id }
+        assertEquals(2, schedules.size)
+        assertEquals(RecurringAssignmentMode.EACH_MEMBER, schedules.single { it.id == "legacy-shared" }.assignmentMode)
+        assertEquals(RecurringAssignmentMode.SHARED, schedules.single { it.id == "legacy-na" }.assignmentMode)
+        assertTrue(schedules.all { it.lastGeneratedEpochDay == day.toEpochDay() })
+        assertEquals(2, tasks.size)
+        assertEquals(TaskStatus.PENDING_APPROVAL, tasks.single { it.assignedToUserId == "na" && it.openToAll }.status)
+        assertEquals(42, db.userDao().getUserByIdSync("na")!!.points)
+        val receipt = RecurringCreationRequest("request", "mom", family, "legacy-shared")
+        assertNull(db.recurringScheduleDao().getCreationRequest(receipt.requestId))
+        db.recurringScheduleDao().insertCreationRequest(receipt)
+
+        db.close()
+        room = null
+        db = openRoom()
+        assertEquals(receipt, db.recurringScheduleDao().getCreationRequest(receipt.requestId))
+        assertEquals(schedules, db.recurringScheduleDao().getByFamilyOnce(family))
+        assertEquals(tasks, db.taskDao().getTasksByFamily(family).first().sortedBy { it.id })
+        db.familyDao().deleteFamily(family)
+        assertNull(db.recurringScheduleDao().getCreationRequest(receipt.requestId))
+    }
+
+    private fun createFixture(version: Int) {
         val input = javaClass.classLoader!!.getResourceAsStream(
-            "com.family.taskmanager.data.local.AppDatabase/6.json"
-        ) ?: error("Missing exported version-6 schema fixture")
+            "com.family.taskmanager.data.local.AppDatabase/" + version + ".json"
+        ) ?: error("Missing exported schema fixture")
         val schema = input.bufferedReader().use { JSONObject(it.readText()).getJSONObject("database") }
-        assertEquals(6, schema.getInt("version"))
+        assertEquals(version, schema.getInt("version"))
         val file = context.getDatabasePath(databaseName)
         file.parentFile!!.mkdirs()
         assertTrue("Fixture directory unavailable: " + file.parentFile, file.parentFile!!.isDirectory)
@@ -131,9 +159,9 @@ class RecurringMigrationTest {
             }
             val setup = schema.getJSONArray("setupQueries")
             for (index in 0 until setup.length()) old.execSQL(setup.getString(index))
-            old.version = 6
+            old.version = version
             old.rawQuery("SELECT * FROM recurring_schedules", null).use {
-                assertEquals(-1, it.getColumnIndex("assignmentMode"))
+                assertEquals(version >= 7, it.getColumnIndex("assignmentMode") >= 0)
             }
             old.row("family_groups", "id" to family, "name" to "Nhà thử", "inviteCode" to "123456",
                 "adminId" to "mom", "createdAt" to 1000L)
@@ -157,6 +185,9 @@ class RecurringMigrationTest {
                     "deadlineTimestamp" to day.atTime(20, 0).toInstant(ZoneOffset.UTC).toEpochMilli(),
                     "proofImageUrl" to if (shared) "shared-proof.jpg" else "", "proofNote" to "",
                     "createdAt" to 1000L, "openToAll" to if (shared) 1 else 0, "submissionRevision" to if (shared) 2 else 0)
+            }
+            if (version >= 7) {
+                old.execSQL("UPDATE recurring_schedules SET assignmentMode = 'EACH_MEMBER' WHERE id = 'legacy-shared'")
             }
         }
     }
