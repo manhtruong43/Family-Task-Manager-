@@ -54,6 +54,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -227,8 +228,9 @@ fun RecurringScheduleSheet(
     onDelete: (RecurringSchedule) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var editorTarget by remember { mutableStateOf<RecurringSchedule?>(null) }
-    var showEditor by remember { mutableStateOf(false) }
+    var editorTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showEditor by rememberSaveable { mutableStateOf(false) }
+    val editorDrafts = rememberSaveableStateHolder()
     var pendingDelete by remember { mutableStateOf<RecurringSchedule?>(null) }
 
     ModalBottomSheet(
@@ -263,7 +265,7 @@ fun RecurringScheduleSheet(
             if (isAdmin) {
                 Button(
                     onClick = {
-                        editorTarget = null
+                        editorTargetId = null
                         showEditor = true
                     },
                     enabled = !isProcessing,
@@ -309,7 +311,7 @@ fun RecurringScheduleSheet(
                             enabled = !isProcessing,
                             onToggleActive = { active -> onToggleActive(schedule, active) },
                             onEdit = {
-                                editorTarget = schedule
+                                editorTargetId = schedule.id
                                 showEditor = true
                             },
                             onDelete = { pendingDelete = schedule }
@@ -322,16 +324,35 @@ fun RecurringScheduleSheet(
     }
 
     if (showEditor && isAdmin) {
-        val editor = prepareRecurringEditor(editorTarget, members, currentUserId)
-        RecurringEditorDialog(
-            initial = editor.initial,
-            members = editor.assignableMembers,
-            isProcessing = isProcessing,
-            onDismiss = { showEditor = false },
-            onConfirm = { input ->
-                onSave(editorTarget?.id, input) { showEditor = false }
+        val targetId = editorTargetId
+        val editorKey = targetId?.let { "schedule:$it" } ?: "new"
+        val target = schedules.firstOrNull { it.id == targetId }
+        val closeEditor = {
+            showEditor = false
+            editorDrafts.removeState(editorKey)
+        }
+        // ID chưa tải được không phải lịch mới. Giữ draft trong holder qua khoảng chờ này.
+        if ((targetId != null && target == null) || members.none { it.id == currentUserId }) {
+            AlertDialog(
+                onDismissRequest = closeEditor,
+                title = { Text(stringResource(R.string.rec_dialog_edit)) },
+                text = { Text(stringResource(R.string.home_loading)) },
+                confirmButton = {
+                    TextButton(onClick = closeEditor) { Text(stringResource(R.string.rec_cancel)) }
+                }
+            )
+        } else {
+            val editor = prepareRecurringEditor(target, members, currentUserId)
+            editorDrafts.SaveableStateProvider(editorKey) {
+                RecurringEditorDialog(
+                    initial = editor.initial,
+                    members = editor.assignableMembers,
+                    isProcessing = isProcessing,
+                    onDismiss = closeEditor,
+                    onConfirm = { input -> onSave(targetId, input, closeEditor) }
+                )
             }
-        )
+        }
     }
 
     pendingDelete?.let { schedule ->
