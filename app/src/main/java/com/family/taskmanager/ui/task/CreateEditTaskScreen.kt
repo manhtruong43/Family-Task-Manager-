@@ -102,7 +102,7 @@ fun CreateEditTaskScreen(
     var selectedDeadlineTimestamp by rememberSaveable {
         mutableLongStateOf(defaultTaskDeadlineMillis())
     }
-    var deadlineChangedByUser by rememberSaveable { mutableStateOf(false) }
+    var originalDeadlineTimestamp by rememberSaveable { mutableStateOf<Long?>(null) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -118,7 +118,7 @@ fun CreateEditTaskScreen(
     val deadlineValid = isDeadlineSelectionValid(
         selectedDeadlineMillis = selectedDeadlineTimestamp,
         isEditing = isEditing,
-        deadlineChangedByUser = deadlineChangedByUser,
+        originalDeadlineMillis = originalDeadlineTimestamp,
         nowMillis = nowMillis
     )
 
@@ -140,9 +140,9 @@ fun CreateEditTaskScreen(
                     currentDeadlineMillis = selectedDeadlineTimestamp,
                     hourOfDay = hourOfDay,
                     minute = minute,
-                    nowMillis = currentNow
+                    nowMillis = currentNow,
+                    originalDeadlineMillis = originalDeadlineTimestamp
                 )
-                deadlineChangedByUser = true
             },
             current.get(Calendar.HOUR_OF_DAY),
             current.get(Calendar.MINUTE),
@@ -164,9 +164,9 @@ fun CreateEditTaskScreen(
                     currentDeadlineMillis = selectedDeadlineTimestamp,
                     year = year,
                     month = month,
-                    dayOfMonth = dayOfMonth
+                    dayOfMonth = dayOfMonth,
+                    originalDeadlineMillis = originalDeadlineTimestamp
                 )
-                deadlineChangedByUser = true
                 if (openTimeAfterDate) {
                     showTimePicker()
                 }
@@ -204,9 +204,9 @@ fun CreateEditTaskScreen(
             description = task.description
             pointsText = task.points.toString()
             selectedPriority = task.priority
-            // Giữ đúng cả giá trị 0 (việc không có hạn) và đúng giờ cũ của nhiệm vụ
+            // Giữ đúng cả giá trị 0 (việc không có hạn) và đúng giờ gốc của nhiệm vụ
             selectedDeadlineTimestamp = task.deadlineTimestamp
-            deadlineChangedByUser = false
+            originalDeadlineTimestamp = task.deadlineTimestamp
             selectedAssigneeId = task.assignedToUserId.ifEmpty { null }
             assigneeChangedByUser = false
             prefilled = true
@@ -540,7 +540,7 @@ fun CreateEditTaskScreen(
                 onClick = {
                     val clickNow = System.currentTimeMillis()
                     nowMillis = clickNow
-                    if (!isDeadlineSelectionValid(selectedDeadlineTimestamp, isEditing, deadlineChangedByUser, clickNow)) {
+                    if (!isDeadlineSelectionValid(selectedDeadlineTimestamp, isEditing, originalDeadlineTimestamp, clickNow)) {
                         Toast.makeText(context, context.getString(R.string.tk_deadline_past_error), Toast.LENGTH_SHORT).show()
                         return@Button
                     }
