@@ -213,18 +213,64 @@ class TaskPermissionsTest {
     fun deadlineValidation_blocksPastSelection_butAllowsUnchangedOverdueWhenEditing() {
         val now = 1_700_000_000_000L
         val past = now - 60_000L
+        val anotherPast = now - 120_000L
         val future = now + 60_000L
 
         // Tạo mới: chặn quá khứ, cho phép tương lai hoặc không đặt hạn (0L)
-        assertFalse(isDeadlineSelectionValid(past, isEditing = false, deadlineChangedByUser = false, nowMillis = now))
-        assertTrue(isDeadlineSelectionValid(future, isEditing = false, deadlineChangedByUser = false, nowMillis = now))
-        assertTrue(isDeadlineSelectionValid(0L, isEditing = false, deadlineChangedByUser = false, nowMillis = now))
+        assertFalse(isDeadlineSelectionValid(past, isEditing = false, originalDeadlineMillis = null, nowMillis = now))
+        assertTrue(isDeadlineSelectionValid(future, isEditing = false, originalDeadlineMillis = null, nowMillis = now))
+        assertTrue(isDeadlineSelectionValid(0L, isEditing = false, originalDeadlineMillis = null, nowMillis = now))
 
-        // Sửa việc đã quá hạn mà giữ nguyên hạn cũ (deadlineChangedByUser = false) -> cho phép lưu
-        assertTrue(isDeadlineSelectionValid(past, isEditing = true, deadlineChangedByUser = false, nowMillis = now))
-        // Sửa việc mà đổi sang hạn ở quá khứ (deadlineChangedByUser = true) -> chặn
-        assertFalse(isDeadlineSelectionValid(past, isEditing = true, deadlineChangedByUser = true, nowMillis = now))
-        assertTrue(isDeadlineSelectionValid(future, isEditing = true, deadlineChangedByUser = true, nowMillis = now))
+        // Sửa việc đã quá hạn mà hạn đang chọn == hạn gốc -> hợp lệ
+        assertTrue(isDeadlineSelectionValid(past, isEditing = true, originalDeadlineMillis = past, nowMillis = now))
+        // Sửa việc mà đổi sang thời điểm khác trong quá khứ -> không hợp lệ
+        assertFalse(isDeadlineSelectionValid(anotherPast, isEditing = true, originalDeadlineMillis = past, nowMillis = now))
+        // Sửa việc mà đổi sang tương lai -> hợp lệ
+        assertTrue(isDeadlineSelectionValid(future, isEditing = true, originalDeadlineMillis = past, nowMillis = now))
+    }
+
+    @Test
+    fun reselectingSameMinuteOn235959OverdueDeadline_preservesExactOriginalTimestampAndRemainsValid() {
+        val original235959 = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 11, 23, 59, 59)
+            set(Calendar.MILLISECOND, 321)
+        }.timeInMillis
+        val nowAfterDeadline = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 12, 10, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        // 1. Chọn giờ -> giữ nguyên 23:59 -> phải trả về đúng mốc gốc 23:59:59.321 (không bị làm tròn thành 23:59:00)
+        val afterTimePick = applySelectedTimePreservingDate(
+            currentDeadlineMillis = original235959,
+            hourOfDay = 23,
+            minute = 59,
+            nowMillis = nowAfterDeadline,
+            originalDeadlineMillis = original235959
+        )
+        assertEquals(original235959, afterTimePick)
+        assertTrue(isDeadlineSelectionValid(afterTimePick, isEditing = true, originalDeadlineMillis = original235959, nowMillis = nowAfterDeadline))
+
+        // 2. Chọn ngày -> giữ nguyên 11/11/2026 -> cũng phải trả về đúng mốc gốc 23:59:59.321
+        val afterDatePick = applySelectedDatePreservingTime(
+            currentDeadlineMillis = afterTimePick,
+            year = 2026,
+            month = Calendar.NOVEMBER,
+            dayOfMonth = 11,
+            originalDeadlineMillis = original235959
+        )
+        assertEquals(original235959, afterDatePick)
+        assertTrue(isDeadlineSelectionValid(afterDatePick, isEditing = true, originalDeadlineMillis = original235959, nowMillis = nowAfterDeadline))
+
+        // 3. Đổi sang giờ khác (23:58) vẫn ở quá khứ -> bị làm tròn giây = 0 và không còn khớp hạn gốc -> bị chặn
+        val changedPast = applySelectedTimePreservingDate(
+            currentDeadlineMillis = original235959,
+            hourOfDay = 23,
+            minute = 58,
+            nowMillis = nowAfterDeadline,
+            originalDeadlineMillis = original235959
+        )
+        assertFalse(isDeadlineSelectionValid(changedPast, isEditing = true, originalDeadlineMillis = original235959, nowMillis = nowAfterDeadline))
     }
 
     @Test

@@ -22,14 +22,30 @@ fun defaultTaskDeadlineMillis(nowMillis: Long = System.currentTimeMillis()): Lon
     }.timeInMillis
 
 /**
+ * Kiểm tra hai mốc thời gian có trùng nhau đến từng phút (cùng năm, ngày trong năm, giờ, phút) hay không.
+ */
+fun isSameDeadlineMinute(firstMillis: Long, secondMillis: Long): Boolean {
+    if (firstMillis <= 0L || secondMillis <= 0L) return firstMillis == secondMillis
+    val first = Calendar.getInstance().apply { timeInMillis = firstMillis }
+    val second = Calendar.getInstance().apply { timeInMillis = secondMillis }
+    return first.get(Calendar.YEAR) == second.get(Calendar.YEAR) &&
+        first.get(Calendar.DAY_OF_YEAR) == second.get(Calendar.DAY_OF_YEAR) &&
+        first.get(Calendar.HOUR_OF_DAY) == second.get(Calendar.HOUR_OF_DAY) &&
+        first.get(Calendar.MINUTE) == second.get(Calendar.MINUTE)
+}
+
+/**
  * Khi người dùng đổi ngày trong DatePicker: giữ nguyên giờ & phút đã chọn trước đó
  * (hoặc dùng 20:00 nếu nhiệm vụ trước đó chưa đặt hạn `0L`), không ép về 23:59.
+ * Nếu kết quả trùng hạn gốc [originalDeadlineMillis] đến từng phút, giữ nguyên giá trị gốc
+ * (kể cả giây và mili giây, ví dụ 23:59:59) để tránh bị hiểu nhầm là đã đổi hạn.
  */
 fun applySelectedDatePreservingTime(
     currentDeadlineMillis: Long,
     year: Int,
     month: Int,
-    dayOfMonth: Int
+    dayOfMonth: Int,
+    originalDeadlineMillis: Long? = null
 ): Long {
     val (hourOfDay, minute) = if (currentDeadlineMillis > 0L) {
         val currentCal = Calendar.getInstance().apply { timeInMillis = currentDeadlineMillis }
@@ -37,7 +53,7 @@ fun applySelectedDatePreservingTime(
     } else {
         DEFAULT_DEADLINE_HOUR to DEFAULT_DEADLINE_MINUTE
     }
-    return Calendar.getInstance().apply {
+    val candidate = Calendar.getInstance().apply {
         set(Calendar.YEAR, year)
         set(Calendar.MONTH, month)
         set(Calendar.DAY_OF_MONTH, dayOfMonth)
@@ -46,17 +62,27 @@ fun applySelectedDatePreservingTime(
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
     }.timeInMillis
+    return if (originalDeadlineMillis != null && originalDeadlineMillis > 0L &&
+        isSameDeadlineMinute(candidate, originalDeadlineMillis)
+    ) {
+        originalDeadlineMillis
+    } else {
+        candidate
+    }
 }
 
 /**
  * Khi người dùng đổi giờ trong TimePicker: giữ nguyên ngày đang chọn.
  * Nếu nhiệm vụ trước đó chưa có hạn (`0L`), lấy ngày hôm nay (hoặc ngày mai nếu giờ đó hôm nay đã qua).
+ * Nếu kết quả trùng hạn gốc [originalDeadlineMillis] đến từng phút, giữ nguyên giá trị gốc
+ * (kể cả giây và mili giây, ví dụ 23:59:59) để tránh bị hiểu nhầm là đã đổi hạn.
  */
 fun applySelectedTimePreservingDate(
     currentDeadlineMillis: Long,
     hourOfDay: Int,
     minute: Int,
-    nowMillis: Long = System.currentTimeMillis()
+    nowMillis: Long = System.currentTimeMillis(),
+    originalDeadlineMillis: Long? = null
 ): Long {
     val cal = Calendar.getInstance()
     if (currentDeadlineMillis > 0L) {
@@ -75,25 +101,32 @@ fun applySelectedTimePreservingDate(
             cal.add(Calendar.DAY_OF_YEAR, 1)
         }
     }
-    return cal.timeInMillis
+    val candidate = cal.timeInMillis
+    return if (originalDeadlineMillis != null && originalDeadlineMillis > 0L &&
+        isSameDeadlineMinute(candidate, originalDeadlineMillis)
+    ) {
+        originalDeadlineMillis
+    } else {
+        candidate
+    }
 }
 
 /**
  * Kiểm tra hạn chót có hợp lệ để lưu hay không:
  * - Không có hạn (`0L`): hợp lệ.
- * - Đang sửa việc cũ và chưa chạm vào hạn (`isEditing && !deadlineChangedByUser`): hợp lệ
- *   (cho phép Bố/Mẹ sửa tên/mô tả/điểm của việc đã quá hạn mà giữ nguyên hạn cũ).
+ * - Đang sửa và hạn đang chọn bằng hạn gốc của nhiệm vụ (`selectedDeadlineMillis == originalDeadlineMillis`):
+ *   hợp lệ (giữ nguyên hạn cũ, kể cả khi việc đã quá hạn).
  * - Các trường hợp còn lại: thời điểm hạn phải lớn hơn hiện tại (`selectedDeadlineMillis > nowMillis`).
  */
 fun isDeadlineSelectionValid(
     selectedDeadlineMillis: Long,
     isEditing: Boolean,
-    deadlineChangedByUser: Boolean,
+    originalDeadlineMillis: Long?,
     nowMillis: Long = System.currentTimeMillis()
 ): Boolean = when {
     selectedDeadlineMillis < 0L -> false
     selectedDeadlineMillis == 0L -> true
-    isEditing && !deadlineChangedByUser -> true
+    isEditing && originalDeadlineMillis != null && selectedDeadlineMillis == originalDeadlineMillis -> true
     else -> selectedDeadlineMillis > nowMillis
 }
 

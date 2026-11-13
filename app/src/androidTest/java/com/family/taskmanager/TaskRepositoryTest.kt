@@ -704,4 +704,49 @@ class TaskRepositoryTest {
             )
         )
     }
+
+    @Test
+    fun updateTask_overdueTaskWith235959Deadline_keepsExactTimestampAndSucceeds() = runBlocking<Unit> {
+        val cal = java.util.Calendar.getInstance().apply {
+            add(java.util.Calendar.DAY_OF_YEAR, -1)
+            set(java.util.Calendar.HOUR_OF_DAY, 23)
+            set(java.util.Calendar.MINUTE, 59)
+            set(java.util.Calendar.SECOND, 59)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val legacyOverdue = cal.timeInMillis
+        val task235959 = taskForBin.copy(
+            id = "t-overdue-235959",
+            title = "Việc cũ 23:59:59",
+            deadlineTimestamp = legacyOverdue
+        )
+        db.taskDao().insertTask(task235959)
+
+        // Giả lập người dùng mở Sửa -> bấm Chọn giờ -> giữ nguyên 23:59 -> OK (giữ đúng mốc gốc 23:59:59)
+        val preserved = com.family.taskmanager.ui.task.applySelectedTimePreservingDate(
+            currentDeadlineMillis = legacyOverdue,
+            hourOfDay = 23,
+            minute = 59,
+            nowMillis = System.currentTimeMillis(),
+            originalDeadlineMillis = legacyOverdue
+        )
+        assertEquals(legacyOverdue, preserved)
+
+        assertEquals(
+            TaskActionResult.SUCCESS,
+            repository.updateTask(
+                taskId = task235959.id,
+                title = "Việc cũ 23:59:59 (đã đổi tên)",
+                description = "Giữ nguyên hạn cũ",
+                assigneeId = bin.id,
+                priority = TaskPriority.HIGH,
+                points = 15,
+                deadlineTimestamp = preserved,
+                actor = parent
+            )
+        )
+        val saved = fresh(task235959.id)
+        assertEquals("Việc cũ 23:59:59 (đã đổi tên)", saved.title)
+        assertEquals(legacyOverdue, saved.deadlineTimestamp)
+    }
 }
