@@ -42,6 +42,9 @@ fun FamilyTaskManagerTheme(
     val language by languageFlow.collectAsState()
 
     val localizedContext = remember(baseContext, baseConfiguration, language) {
+        // Đồng bộ cả Resources của Activity để Dialog / menu / bảng trượt (cửa sổ riêng) cũng đổi
+        // ngôn ngữ; chạy trước khi bất kỳ hộp thoại nào bên dưới được tạo.
+        AppLanguage.applyToActivity(baseContext, language)
         AppLanguage.localizedContext(baseContext, baseConfiguration, language)
     }
 
