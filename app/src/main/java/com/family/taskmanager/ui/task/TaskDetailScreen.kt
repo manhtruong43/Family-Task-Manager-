@@ -106,6 +106,7 @@ fun TaskDetailScreen(
     }
     val reactions by viewModel.observedTaskReactions.collectAsState()
     val isSubmittingProof by viewModel.isSubmittingProof.collectAsState()
+    val reminderLeadMinutes by viewModel.reminderLeadMinutes.collectAsState()
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -262,7 +263,7 @@ fun TaskDetailScreen(
                                 fontWeight = if (overdue) FontWeight.Bold else FontWeight.Normal
                             )
                             if (task.deadlineTimestamp > 0L) {
-                                val leadRes = when (task.reminderLeadMinutes) {
+                                val leadRes = when (reminderLeadMinutes) {
                                     60 -> R.string.tk_reminder_1h
                                     120 -> R.string.tk_reminder_2h
                                     else -> R.string.tk_reminder_30m

@@ -26,6 +26,10 @@ interface NotificationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNotifications(notifications: List<NotificationItem>)
 
+    /** Nhắc việc thử lại không được đặt lại trạng thái đã đọc/timestamp của thông báo cũ. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertDeadlineNotifications(notifications: List<NotificationItem>): List<Long>
+
     @Query("UPDATE notifications SET isRead = 1 WHERE userId = :userId")
     suspend fun markAllAsRead(userId: String)
 
@@ -53,6 +57,12 @@ interface NotificationDao {
 
     @Query("SELECT * FROM tasks WHERE deadlineTimestamp > 0")
     suspend fun getTasksWithDeadline(): List<Task>
+
+    @Query("SELECT t.* FROM tasks t WHERE " + REMINDER_CANDIDATE_CONDITION)
+    suspend fun getReminderCandidates(now: Long): List<Task>
+
+    @Query("SELECT * FROM tasks WHERE id IN (:taskIds)")
+    suspend fun getTasksByIds(taskIds: List<String>): List<Task>
 
     @Query("SELECT * FROM tasks WHERE id = :taskId LIMIT 1")
     suspend fun getTaskById(taskId: String): Task?

@@ -170,6 +170,7 @@ class FamilyRepository @Inject constructor(
                 familyDao.clearUserFamily(user.id)
                 familyDao.deleteSchedulesOfFamily(familyId)
                 familyDao.deleteReactionsOfFamily(familyId)
+                database.taskApprovalDao().deleteByFamily(familyId)
                 familyDao.deleteTasksOfFamily(familyId)
                 familyDao.deleteRedemptionsOfFamily(familyId)
                 familyDao.deleteRewardsOfFamily(familyId)

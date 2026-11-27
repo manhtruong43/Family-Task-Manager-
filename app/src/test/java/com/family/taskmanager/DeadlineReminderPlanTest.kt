@@ -103,21 +103,21 @@ class DeadlineReminderPlanTest {
         )
 
         val reminded = mutableSetOf<String>()
-        val stagesObserved = mutableListOf<ReminderStage>()
+        val stagesObserved = mutableSetOf<String>()
         var cursorNow = monday + hourMs
         while (true) {
             val next = DeadlineReminderPlanner.nextReminderFor(task0of3, cursorNow, { it in reminded })
                 ?: break
-            stagesObserved.add(next.stage)
-            reminded.add(next.stageKey)
+            stagesObserved.addAll(next.stageKeysToMark)
+            reminded.addAll(next.stageKeysToMark)
             cursorNow = maxOf(cursorNow, next.triggerAtMillis) + 1_000L
         }
 
         // Phải có đủ cả mốc sớm (giữa tuần, cảnh báo theo số lần thiếu, sáng ngày cuối, và nhắc chót)
-        assertTrue(ReminderStage.FLEX_MID_WEEK in stagesObserved)
-        assertTrue(ReminderStage.FLEX_EARLY_PACE in stagesObserved)
-        assertTrue(ReminderStage.FLEX_FINAL_DAY in stagesObserved)
-        assertEquals(ReminderStage.FLEX_LAST_CALL, stagesObserved.last())
+        assertTrue("flex_mid_week" in stagesObserved)
+        assertTrue("flex_early_pace" in stagesObserved)
+        assertTrue("flex_final_day" in stagesObserved)
+        assertTrue("flex_last_call" in stagesObserved)
 
         // Khi đã làm 2/3 lần (chỉ còn 1 lần) -> không cần mốc cảnh báo nhiều ngày FLEX_EARLY_PACE
         val task2of3 = task0of3.copy(completedCount = 2)
@@ -129,6 +129,65 @@ class DeadlineReminderPlanTest {
         // Khi đã hoàn thành đủ 3/3 -> không đặt báo thức nữa
         val doneTask = task0of3.copy(completedCount = 3, status = TaskStatus.COMPLETED)
         assertNull(DeadlineReminderPlanner.nextReminderFor(doneTask, monday + hourMs, { false }))
+    }
+
+    @Test
+    fun futureWakeupsExcludeConsumedAndSimultaneousStages() {
+        val deadline = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 29, 20, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val task = baseTask(deadline, taskMode = TaskMode.FLEXIBLE_WEEKLY, targetCount = 3)
+        val plan = requireNotNull(DeadlineReminderPlanner.nextReminderFor(task, task.createdAt, { false }))
+        assertEquals(setOf("flex_mid_week", "flex_early_pace"), plan.stageKeysToMark)
+        assertEquals(setOf("flex_final_day", "flex_last_call"), plan.futureWakeups.keys)
+        assertTrue(plan.futureWakeups.values.all { it > plan.dueAtMillis })
+        val alreadySent = requireNotNull(DeadlineReminderPlanner.nextReminderFor(
+            task, task.createdAt, { it == "flex_last_call" }))
+        assertEquals(setOf("flex_final_day"), alreadySent.futureWakeups.keys)
+        val fixed = requireNotNull(DeadlineReminderPlanner.nextReminderFor(baseTask(deadline), task.createdAt, { false }))
+        assertTrue(fixed.futureWakeups.isEmpty())
+    }
+
+    @Test
+    fun globalLeadOverridesExistingTaskMetadata() {
+        val now = 1_800_000_000_000L
+        val task = baseTask(now + 5 * hourMs, reminderLeadMinutes = 30)
+        val plan = DeadlineReminderPlanner.nextReminderFor(task, now, { false }, leadMinutesOverride = 120)!!
+        assertEquals(task.deadlineTimestamp - 2 * hourMs, plan.triggerAtMillis)
+        assertEquals("fixed_120", plan.stageKey)
+    }
+
+    @Test
+    fun lateCatchup_consumesEarlierStages_andProgressDoesNotRearmThem() {
+        val deadline = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 29, 20, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val task = baseTask(deadline, taskMode = TaskMode.FLEXIBLE_WEEKLY, targetCount = 3)
+        val now = deadline - 2 * hourMs
+        val plan = DeadlineReminderPlanner.nextReminderFor(task, now, { false })!!
+        assertEquals(ReminderStage.FLEX_FINAL_DAY, plan.stage)
+        assertTrue(plan.stageKeysToMark.containsAll(setOf("flex_mid_week", "flex_early_pace", "flex_final_day")))
+        assertTrue(plan.dueAtMillis < now)
+        val consumed = plan.stageKeysToMark
+        val next = DeadlineReminderPlanner.nextReminderFor(
+            task.copy(completedCount = 1), now + 10_000, { it in consumed }
+        )!!
+        assertEquals(ReminderStage.FLEX_LAST_CALL, next.stage)
+        assertTrue(next.dueAtMillis > now)
+    }
+
+    @Test
+    fun equalTimeStages_areConsumedTogether() {
+        val deadline = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 29, 20, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        // A six-day span puts both midpoint and pace reminder on Thursday at 19:00.
+        val task = baseTask(deadline, createdAt = deadline - 6 * dayMs, taskMode = TaskMode.FLEXIBLE_WEEKLY, targetCount = 3)
+        val plan = DeadlineReminderPlanner.nextReminderFor(task, task.createdAt, { false })!!
+        assertEquals(setOf("flex_mid_week", "flex_early_pace"), plan.stageKeysToMark)
     }
 
     @Test

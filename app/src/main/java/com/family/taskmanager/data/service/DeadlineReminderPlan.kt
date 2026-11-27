@@ -5,30 +5,26 @@ import com.family.taskmanager.data.model.TaskStatus
 import java.util.Calendar
 
 enum class ReminderStage {
-    FIXED_LEAD,
-    FLEX_MID_WEEK,
-    FLEX_EARLY_PACE,
-    FLEX_FINAL_DAY,
-    FLEX_LAST_CALL
+    FIXED_LEAD, FLEX_MID_WEEK, FLEX_EARLY_PACE, FLEX_FINAL_DAY, FLEX_LAST_CALL
 }
 
 data class PlannedReminder(
     val stage: ReminderStage,
     val stageKey: String,
-    val triggerAtMillis: Long
+    val triggerAtMillis: Long,
+    /** Mốc nghiệp vụ gốc, không bị đẩy sang now + delay khi bắt kịp mốc đã lỡ. */
+    val dueAtMillis: Long = triggerAtMillis,
+    /** Các mốc trùng giờ hoặc đã lỡ được xử lý bằng cùng một lần nhắc. */
+    val stageKeysToMark: Set<String> = setOf(stageKey),
+    /** Các mốc chưa nhắc sau mốc chính; hẹn độc lập để một lỗi không làm mất cả tuần. */
+    val futureWakeups: Map<String, Long> = emptyMap()
 )
 
-/**
- * Bộ lập lịch mốc nhắc việc thuần logic (test trực tiếp trên JVM không cần AlarmManager):
- * - Việc cố định (FIXED): nhắc trước hạn chót đúng [Task.reminderLeadMinutes] (30 / 60 / 120 phút).
- * - Việc linh hoạt trong tuần (FLEXIBLE_WEEKLY): nhắc sớm theo 4 mốc dựa trên số lần còn thiếu
- *   (giữa kỳ -> cảnh báo sớm theo số lần còn thiếu -> sáng ngày cuối -> nhắc chót trước hạn).
- */
+/** Lập lịch nhắc; scheduler truyền khoảng nhắc chung của ứng dụng qua leadMinutesOverride. */
 object DeadlineReminderPlanner {
     private const val MINUTE_MS = 60_000L
     private const val HOUR_MS = 60 * MINUTE_MS
     private const val DAY_MS = 24 * HOUR_MS
-
     val REMINDABLE_STATUSES = setOf(TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.REJECTED)
 
     fun normalizedLeadMinutes(leadMinutes: Int): Int =
@@ -39,73 +35,68 @@ object DeadlineReminderPlanner {
         task: Task,
         nowMillis: Long,
         wasReminded: (stageKey: String) -> Boolean,
-        minDelayMs: Long = DeadlineReminderScheduler.MIN_DELAY_MS
+        minDelayMs: Long = DeadlineReminderScheduler.MIN_DELAY_MS,
+        leadMinutesOverride: Int? = null
     ): PlannedReminder? {
-        if (task.status !in REMINDABLE_STATUSES) return null
-        if (task.deadlineTimestamp <= nowMillis) return null
-
-        val leadMinutes = normalizedLeadMinutes(task.reminderLeadMinutes)
+        if (task.status !in REMINDABLE_STATUSES || task.deadlineTimestamp <= nowMillis) return null
+        val leadMinutes = normalizedLeadMinutes(leadMinutesOverride ?: task.reminderLeadMinutes)
         if (!task.isFlexibleWeekly) {
-            val stageKey = "fixed_$leadMinutes"
-            if (wasReminded(stageKey)) return null
-            val triggerAt = maxOf(task.deadlineTimestamp - leadMinutes * MINUTE_MS, nowMillis + minDelayMs)
-            return PlannedReminder(ReminderStage.FIXED_LEAD, stageKey, triggerAt)
+            val key = "fixed_$leadMinutes"
+            if (wasReminded(key)) return null
+            val dueAt = task.deadlineTimestamp - leadMinutes * MINUTE_MS
+            return PlannedReminder(
+                ReminderStage.FIXED_LEAD, key, maxOf(dueAt, nowMillis + minDelayMs), dueAt
+            )
         }
-
-        val remaining = task.remainingCount
-        if (remaining <= 0) return null
-
-        val candidates = buildFlexibleCandidates(task, leadMinutes)
-            .filterNot { wasReminded(it.stageKey) }
-        if (candidates.isEmpty()) return null
-
-        // Nếu nhiều mốc cũ đã qua mà chưa kịp bắn (vd: tắt máy lâu), chỉ bắn mốc gần hiện tại nhất để tránh spam.
-        val pastDue = candidates.filter { it.triggerAtMillis <= nowMillis }
-        if (pastDue.isNotEmpty()) {
-            val latest = pastDue.maxBy { it.triggerAtMillis }
-            return latest.copy(triggerAtMillis = nowMillis + minDelayMs)
+        if (task.remainingCount <= 0) return null
+        val pending = buildFlexibleCandidates(task, leadMinutes).filterNot { wasReminded(it.stageKey) }
+        if (pending.isEmpty()) return null
+        val late = pending.filter { it.dueAtMillis <= nowMillis }
+        fun followingWakeups(after: Long): Map<String, Long> =
+            pending.filter { it.dueAtMillis > after }
+                .groupBy { it.dueAtMillis }.map { (time, sameTime) ->
+                    sameTime.maxBy { it.stage.ordinal }.stageKey to time
+                }.toMap()
+        if (late.isNotEmpty()) {
+            val latest = late.maxWith(compareBy<PlannedReminder> { it.dueAtMillis }.thenBy { it.stage.ordinal })
+            return latest.copy(
+                triggerAtMillis = nowMillis + minDelayMs,
+                stageKeysToMark = late.map { it.stageKey }.toSet(),
+                futureWakeups = followingWakeups(nowMillis)
+            )
         }
-        return candidates.minBy { it.triggerAtMillis }
+        val firstTime = pending.minOf { it.dueAtMillis }
+        val sameTime = pending.filter { it.dueAtMillis == firstTime }
+        return sameTime.maxBy { it.stage.ordinal }.copy(
+            stageKeysToMark = sameTime.map { it.stageKey }.toSet(),
+            futureWakeups = followingWakeups(firstTime)
+        )
     }
 
     internal fun buildFlexibleCandidates(task: Task, leadMinutes: Int): List<PlannedReminder> {
         val deadline = task.deadlineTimestamp
         val remaining = task.remainingCount
-        val list = mutableListOf<PlannedReminder>()
-
-        fun keyOf(stage: ReminderStage) = "${stage.name.lowercase()}_c${task.completedCount}_l$leadMinutes"
-
-        // 1. Mốc giữa kỳ (50% thời gian từ lúc tạo đến hạn cuối, ưu tiên 19:00 tối)
-        val totalSpan = deadline - task.createdAt
-        if (totalSpan >= 2 * DAY_MS) {
-            val rawMid = task.createdAt + totalSpan / 2
-            val midEvening = timeOfDayMillis(rawMid, 19, 0)
-            val midTrigger = if (midEvening < deadline - DAY_MS) midEvening else rawMid
-            if (midTrigger < deadline - DAY_MS) {
-                list.add(PlannedReminder(ReminderStage.FLEX_MID_WEEK, keyOf(ReminderStage.FLEX_MID_WEEK), midTrigger))
-            }
+        val candidates = mutableListOf<PlannedReminder>()
+        // Tiến độ thay đổi nội dung/thời điểm nhắc, không tạo lại danh tính các mốc đã gửi.
+        fun key(stage: ReminderStage) = stage.name.lowercase()
+        fun add(stage: ReminderStage, time: Long) {
+            candidates += PlannedReminder(stage, key(stage), time)
         }
-
-        // 2. Mốc nhắc sớm theo số lần còn thiếu (còn 2 lần -> trước 2 ngày; còn >=3 lần -> trước 3 ngày, lúc 19:00)
+        val span = deadline - task.createdAt
+        if (span >= 2 * DAY_MS) {
+            val midpoint = task.createdAt + span / 2
+            val evening = timeOfDayMillis(midpoint, 19, 0)
+            val trigger = if (evening < deadline - DAY_MS) evening else midpoint
+            if (trigger < deadline - DAY_MS) add(ReminderStage.FLEX_MID_WEEK, trigger)
+        }
         if (remaining >= 2) {
-            val daysBefore = remaining.coerceIn(2, 3)
-            val paceTrigger = timeOfDayMillis(deadline - daysBefore * DAY_MS, 19, 0)
-            if (paceTrigger < deadline - 12 * HOUR_MS) {
-                list.add(PlannedReminder(ReminderStage.FLEX_EARLY_PACE, keyOf(ReminderStage.FLEX_EARLY_PACE), paceTrigger))
-            }
+            val trigger = timeOfDayMillis(deadline - remaining.coerceIn(2, 3) * DAY_MS, 19, 0)
+            if (trigger < deadline - 12 * HOUR_MS) add(ReminderStage.FLEX_EARLY_PACE, trigger)
         }
-
-        // 3. Mốc sáng ngày cuối hạn (09:00 sáng) nếu hạn sau 11:00
-        val finalMorning = timeOfDayMillis(deadline, 9, 0)
-        if (deadline - finalMorning >= 2 * HOUR_MS) {
-            list.add(PlannedReminder(ReminderStage.FLEX_FINAL_DAY, keyOf(ReminderStage.FLEX_FINAL_DAY), finalMorning))
-        }
-
-        // 4. Mốc nhắc chót trước hạn theo reminderLeadMinutes (30p / 1h / 2h)
-        val lastCallTrigger = deadline - leadMinutes * MINUTE_MS
-        list.add(PlannedReminder(ReminderStage.FLEX_LAST_CALL, keyOf(ReminderStage.FLEX_LAST_CALL), lastCallTrigger))
-
-        return list.sortedBy { it.triggerAtMillis }
+        val morning = timeOfDayMillis(deadline, 9, 0)
+        if (deadline - morning >= 2 * HOUR_MS) add(ReminderStage.FLEX_FINAL_DAY, morning)
+        add(ReminderStage.FLEX_LAST_CALL, deadline - leadMinutes * MINUTE_MS)
+        return candidates.sortedBy { it.dueAtMillis }
     }
 
     private fun timeOfDayMillis(baseMillis: Long, hourOfDay: Int, minute: Int): Long =

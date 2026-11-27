@@ -946,7 +946,8 @@ private fun RecurringEditorDialog(
                             repeatType = repeatType,
                             daysOfWeekMask = daysMask,
                             dueMinuteOfDay = dueMinute,
-                            assignmentMode = assignmentMode
+                            assignmentMode = assignmentMode,
+                            reminderLeadMinutes = initial?.reminderLeadMinutes ?: Task.DEFAULT_REMINDER_LEAD_MINUTES
                         )
                     )
                 },

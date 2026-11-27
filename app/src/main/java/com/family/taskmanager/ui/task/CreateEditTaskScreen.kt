@@ -3,6 +3,7 @@ package com.family.taskmanager.ui.task
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -81,13 +82,13 @@ import com.family.taskmanager.data.repository.RecurringScheduleInput
 import com.family.taskmanager.data.repository.TaskActionResult
 import com.family.taskmanager.data.repository.TaskRepository
 import com.family.taskmanager.ui.calendar.RecurringScheduleViewModel
+import com.family.taskmanager.ui.calendar.canManageRecurringDraft
 import com.family.taskmanager.ui.home.HomeViewModel
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 
 /** 3 chế độ tạo nhiệm vụ hợp nhất ngay tại màn Tạo nhiệm vụ (góp ý của Giảng viên). */
 enum class TaskCreationMode {
@@ -129,21 +130,16 @@ fun CreateEditTaskScreen(
 
     // Cài đặt việc linh hoạt trong tuần (số lần cần hoàn thành: 2..7)
     var flexibleTargetCount by rememberSaveable { mutableIntStateOf(3) }
-    // Thời gian nhắc trước hạn chót (30 / 60 / 120 phút)
-    var reminderLeadMinutes by rememberSaveable { mutableIntStateOf(Task.DEFAULT_REMINDER_LEAD_MINUTES) }
+    val reminderLeadMinutes by viewModel.reminderLeadMinutes.collectAsState()
 
     // Cài đặt lịch trình lặp lại (khi chọn chế độ RECURRING)
     var repeatType by rememberSaveable { mutableStateOf(RepeatType.DAILY) }
     var daysOfWeekMask by rememberSaveable { mutableIntStateOf(0) }
     var recurringDueMinute by rememberSaveable { mutableIntStateOf(RecurringSchedule.DEFAULT_DUE_MINUTE) }
-    var recurringRequestId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
-    var awaitingRecurringResult by rememberSaveable { mutableStateOf(false) }
 
     // Đang lưu -> khóa nút để không tạo trùng
     val isSavingTask by viewModel.isSavingTask.collectAsState()
-    val isSavingRecurring by recurringViewModel.isProcessing.collectAsState()
     var isSaving by remember { mutableStateOf(false) }
-    val busy = isSaving || isSavingTask || isSavingRecurring
 
     val points = pointsText.toIntOrNull()
     val maxPoints = if (isRecurringMode) RecurringSchedule.MAX_POINTS else TaskRepository.MAX_TASK_POINTS
@@ -182,38 +178,6 @@ fun CreateEditTaskScreen(
             originalDeadlineMillis = originalDeadlineTimestamp,
             nowMillis = nowMillis
         )
-    }
-
-    // Lắng nghe kết quả lưu lịch trình lặp lại từ RecurringScheduleViewModel
-    LaunchedEffect(recurringViewModel) {
-        recurringViewModel.results.collect { result ->
-            if (!awaitingRecurringResult) return@collect
-            awaitingRecurringResult = false
-            isSaving = false
-            when (result) {
-                RecurringResult.SAVED, RecurringResult.ALREADY_CREATED -> {
-                    Toast.makeText(context, context.getString(R.string.rec_msg_saved), Toast.LENGTH_SHORT).show()
-                    onBack()
-                }
-                else -> {
-                    val msgRes = when (result) {
-                        RecurringResult.INVALID_TITLE -> R.string.rec_err_title
-                        RecurringResult.INVALID_POINTS -> R.string.rec_err_points
-                        RecurringResult.NO_DAYS -> R.string.rec_err_days
-                        RecurringResult.NOT_ALLOWED -> R.string.rec_err_not_allowed
-                        RecurringResult.INVALID_ASSIGNEE -> R.string.rec_err_assignee
-                        RecurringResult.PERSISTENCE_ERROR -> R.string.rec_err_storage
-                        else -> R.string.rec_err_general
-                    }
-                    val text = if (msgRes == R.string.rec_err_points) {
-                        context.getString(msgRes, RecurringSchedule.MAX_POINTS)
-                    } else {
-                        context.getString(msgRes)
-                    }
-                    Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
     }
 
     val showTimePicker: () -> Unit = {
@@ -283,7 +247,8 @@ fun CreateEditTaskScreen(
     var assignMode by rememberSaveable { mutableStateOf(AssignMode.ANYONE) }
     var eachSelectedIds by rememberSaveable { mutableStateOf(listOf<String>()) }
     val eachSelected = assignableMembers.filter { it.id in eachSelectedIds }
-    val assigneeValid = if (isEditing) true else eachSelected.isNotEmpty()
+    val assigneeValid = if (isEditing) (!isFlexibleMode || !selectedAssigneeId.isNullOrBlank())
+        else eachSelectedIds.isNotEmpty() && eachSelected.size == eachSelectedIds.size
     val recurringDaysValid = !isRecurringMode || repeatType == RepeatType.DAILY || (daysOfWeekMask and RecurringSchedule.ALL_DAYS_MASK) != 0
 
     // Chế độ sửa: điền sẵn dữ liệu cũ đúng 1 lần (xoay màn hình không bị ghi đè lại)
@@ -300,21 +265,57 @@ fun CreateEditTaskScreen(
             selectedAssigneeId = task.assignedToUserId.ifEmpty { null }
             assigneeChangedByUser = false
             flexibleTargetCount = task.targetCount.coerceIn(Task.MIN_FLEXIBLE_TARGET_COUNT, Task.MAX_FLEXIBLE_TARGET_COUNT)
-            reminderLeadMinutes = task.reminderLeadMinutes
-                .takeIf { it in Task.ALLOWED_REMINDER_LEAD_MINUTES }
-                ?: Task.DEFAULT_REMINDER_LEAD_MINUTES
             prefilled = true
         }
     }
+
+    val recurringSession = rememberUnifiedRecurringSaveSession(
+        active = isRecurringMode,
+        restorePendingDraft = !isEditing,
+        actor = currentUser,
+        viewModel = recurringViewModel,
+        store = viewModel.recurringDraftStore,
+        onRestore = { draft ->
+            creationMode = TaskCreationMode.RECURRING
+            title = draft.title
+            description = draft.description
+            pointsText = draft.points
+            selectedPriority = draft.priority
+            eachSelectedIds = draft.assigneeIds
+            assignMode = if (draft.assignmentMode == RecurringAssignmentMode.EACH_MEMBER) AssignMode.EACH else AssignMode.ANYONE
+            repeatType = draft.repeatType
+            daysOfWeekMask = draft.daysMask
+            recurringDueMinute = draft.dueMinute
+        },
+        onSaved = {
+            Toast.makeText(context, context.getString(R.string.rec_msg_saved), Toast.LENGTH_SHORT).show()
+            onBack()
+        },
+        onClose = onBack
+    )
+    val busy = isSaving || isSavingTask || recurringSession.processing
+    val formBlocked = busy || !recurringSession.initialized || (isRecurringMode && !recurringSession.formReady)
+    val taskTypeSwitchEnabled = !busy && recurringSession.initialized && recurringSession.editingId == null
+    val recurringAssigneeId = if (eachSelectedIds.size == 1) eachSelectedIds.single() else ""
+    val recurringAssignmentMode = if (eachSelectedIds.size >= 2 && assignMode == AssignMode.EACH)
+        RecurringAssignmentMode.EACH_MEMBER else RecurringAssignmentMode.SHARED
+    val recurringPermission = !isRecurringMode || canManageRecurringDraft(
+        recurringSession.initial, currentUser?.id, members, recurringAssigneeId, recurringAssignmentMode
+    )
+    BackHandler { if (!busy) recurringSession.close() }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(stringResource(if (isEditing) R.string.tk_edit_title else R.string.create_task_title))
+                    Text(stringResource(when {
+                        isEditing -> R.string.tk_edit_title
+                        isRecurringMode && recurringSession.editingId != null -> R.string.rec_dialog_edit
+                        else -> R.string.create_task_title
+                    }))
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(enabled = !busy, onClick = recurringSession.close) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.btn_back)
@@ -331,6 +332,36 @@ fun CreateEditTaskScreen(
                 .padding(20.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            if (isRecurringMode) {
+                when {
+                    recurringSession.lookupFailed -> {
+                        Text(stringResource(R.string.rec_err_storage), color = MaterialTheme.colorScheme.error)
+                        OutlinedButton(onClick = recurringSession.retry) { Text(stringResource(R.string.rec_retry)) }
+                    }
+                    recurringSession.needsAcknowledgement -> {
+                        Text(stringResource(R.string.rec_recovered_draft))
+                        OutlinedButton(onClick = recurringSession.continueEditing) {
+                            Text(stringResource(R.string.rec_continue_edit))
+                        }
+                    }
+                    recurringSession.missing -> Text(
+                        stringResource(R.string.rec_err_general), color = MaterialTheme.colorScheme.error
+                    )
+                    formBlocked && !busy -> Text(stringResource(R.string.home_loading))
+                }
+                if (!formBlocked && !recurringPermission) {
+                    Text(stringResource(R.string.rec_err_management_transition), color = MaterialTheme.colorScheme.error)
+                }
+                recurringSession.result?.let { result ->
+                    val message = when (result) {
+                        RecurringResult.PERSISTENCE_ERROR -> R.string.rec_err_storage
+                        RecurringResult.INVALID_ASSIGNEE, RecurringResult.NOT_ALLOWED -> R.string.rec_err_permission_changed
+                        RecurringResult.NOT_FOUND -> R.string.rec_err_general
+                        else -> null
+                    }
+                    message?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+                }
+            }
             // Chọn loại nhiệm vụ khi TẠO MỚI: Một lần / Lặp lại / Linh hoạt tuần
             if (!isEditing) {
                 Text(stringResource(R.string.tk_type_label), fontWeight = FontWeight.Bold)
@@ -340,6 +371,7 @@ fun CreateEditTaskScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
+                        enabled = taskTypeSwitchEnabled,
                         selected = creationMode == TaskCreationMode.ONE_TIME,
                         onClick = {
                             creationMode = TaskCreationMode.ONE_TIME
@@ -351,12 +383,14 @@ fun CreateEditTaskScreen(
                         modifier = Modifier.weight(1f)
                     )
                     FilterChip(
+                        enabled = taskTypeSwitchEnabled,
                         selected = creationMode == TaskCreationMode.RECURRING,
                         onClick = { creationMode = TaskCreationMode.RECURRING },
                         label = { Text(stringResource(R.string.tk_type_recurring), fontSize = 12.sp, maxLines = 1) },
                         modifier = Modifier.weight(1f)
                     )
                     FilterChip(
+                        enabled = taskTypeSwitchEnabled,
                         selected = creationMode == TaskCreationMode.FLEXIBLE_WEEKLY,
                         onClick = {
                             creationMode = TaskCreationMode.FLEXIBLE_WEEKLY
@@ -372,6 +406,7 @@ fun CreateEditTaskScreen(
             }
 
             OutlinedTextField(
+                enabled = !formBlocked,
                 value = title,
                 onValueChange = { title = it },
                 label = { Text(stringResource(R.string.task_title_hint)) },
@@ -383,6 +418,7 @@ fun CreateEditTaskScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
+                enabled = !formBlocked,
                 value = description,
                 onValueChange = { description = it },
                 label = { Text(stringResource(R.string.task_description_hint)) },
@@ -412,29 +448,32 @@ fun CreateEditTaskScreen(
                 }
                 ExposedDropdownMenuBox(
                     expanded = expandedAssignee,
-                    onExpandedChange = { expandedAssignee = !expandedAssignee }
+                    onExpandedChange = { if (!formBlocked) expandedAssignee = !expandedAssignee }
                 ) {
                     OutlinedTextField(
+                enabled = !formBlocked,
                         value = assigneeDisplayText,
                         onValueChange = {},
                         readOnly = true,
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAssignee) },
                         modifier = Modifier
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = !formBlocked)
                             .fillMaxWidth()
                     )
                     ExposedDropdownMenu(
                         expanded = expandedAssignee,
                         onDismissRequest = { expandedAssignee = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.task_assign_all)) },
-                            onClick = {
-                                selectedAssigneeId = null
-                                assigneeChangedByUser = true
-                                expandedAssignee = false
-                            }
-                        )
+                        if (!isFlexibleMode) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.task_assign_all)) },
+                                onClick = {
+                                    selectedAssigneeId = null
+                                    assigneeChangedByUser = true
+                                    expandedAssignee = false
+                                }
+                            )
+                        }
                         assignableMembers.forEach { user ->
                             DropdownMenuItem(
                                 text = { Text("${user.name} (${roleLabel(user)})") },
@@ -453,11 +492,12 @@ fun CreateEditTaskScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
+                        .clickable(enabled = !formBlocked) {
                             eachSelectedIds = if (allSelected) emptyList() else assignableMembers.map { it.id }
                         }
                 ) {
                     Checkbox(
+                        enabled = !formBlocked,
                         checked = allSelected,
                         onCheckedChange = { checked ->
                             eachSelectedIds = if (checked) assignableMembers.map { it.id } else emptyList()
@@ -471,11 +511,12 @@ fun CreateEditTaskScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
+                            .clickable(enabled = !formBlocked) {
                                 eachSelectedIds = if (checked) eachSelectedIds - user.id else eachSelectedIds + user.id
                             }
                     ) {
                         Checkbox(
+                        enabled = !formBlocked,
                             checked = checked,
                             onCheckedChange = { isChecked ->
                                 eachSelectedIds = if (isChecked) eachSelectedIds + user.id else eachSelectedIds - user.id
@@ -487,14 +528,18 @@ fun CreateEditTaskScreen(
 
                 if (eachSelected.size >= 2) {
                     Spacer(modifier = Modifier.height(8.dp))
+                    if (!isFlexibleMode) {
+                        AssignModeOption(
+                        enabled = !formBlocked,
+                            selected = assignMode == AssignMode.ANYONE,
+                            text = stringResource(R.string.tk_mode_anyone),
+                            hint = stringResource(R.string.tk_mode_anyone_hint),
+                            onClick = { assignMode = AssignMode.ANYONE }
+                        )
+                    }
                     AssignModeOption(
-                        selected = assignMode == AssignMode.ANYONE,
-                        text = stringResource(R.string.tk_mode_anyone),
-                        hint = stringResource(R.string.tk_mode_anyone_hint),
-                        onClick = { assignMode = AssignMode.ANYONE }
-                    )
-                    AssignModeOption(
-                        selected = assignMode == AssignMode.EACH,
+                        enabled = !formBlocked,
+                        selected = isFlexibleMode || assignMode == AssignMode.EACH,
                         text = stringResource(R.string.tk_mode_each),
                         hint = stringResource(R.string.tk_mode_each_hint),
                         onClick = { assignMode = AssignMode.EACH }
@@ -518,18 +563,21 @@ fun CreateEditTaskScreen(
                 modifier = Modifier.padding(vertical = 4.dp)
             ) {
                 RadioButton(
+                    enabled = !formBlocked,
                     selected = selectedPriority == TaskPriority.LOW,
                     onClick = { selectedPriority = TaskPriority.LOW }
                 )
                 Text(stringResource(R.string.priority_low), modifier = Modifier.padding(end = 16.dp))
 
                 RadioButton(
+                    enabled = !formBlocked,
                     selected = selectedPriority == TaskPriority.MEDIUM,
                     onClick = { selectedPriority = TaskPriority.MEDIUM }
                 )
                 Text(stringResource(R.string.priority_medium), modifier = Modifier.padding(end = 16.dp))
 
                 RadioButton(
+                    enabled = !formBlocked,
                     selected = selectedPriority == TaskPriority.HIGH,
                     onClick = { selectedPriority = TaskPriority.HIGH }
                 )
@@ -539,6 +587,7 @@ fun CreateEditTaskScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
+                enabled = !formBlocked,
                 value = pointsText,
                 onValueChange = { pointsText = it.filter { char -> char.isDigit() }.take(6) },
                 label = { Text(stringResource(R.string.task_points_hint)) },
@@ -579,7 +628,7 @@ fun CreateEditTaskScreen(
                     (Task.MIN_FLEXIBLE_TARGET_COUNT..Task.MAX_FLEXIBLE_TARGET_COUNT).forEach { count ->
                         FilterChip(
                             selected = flexibleTargetCount == count,
-                            enabled = count >= minSelectableTarget,
+                            enabled = !formBlocked && count >= minSelectableTarget,
                             onClick = { flexibleTargetCount = count },
                             label = { Text("$count", fontWeight = FontWeight.Bold) },
                             modifier = Modifier.weight(1f)
@@ -602,11 +651,13 @@ fun CreateEditTaskScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
+                        enabled = !formBlocked,
                         selected = repeatType == RepeatType.DAILY,
                         onClick = { repeatType = RepeatType.DAILY },
                         label = { Text(stringResource(R.string.rec_repeat_type_daily)) }
                     )
                     FilterChip(
+                        enabled = !formBlocked,
                         selected = repeatType == RepeatType.WEEKLY,
                         onClick = { repeatType = RepeatType.WEEKLY },
                         label = { Text(stringResource(R.string.rec_repeat_type_weekly)) }
@@ -638,7 +689,7 @@ fun CreateEditTaskScreen(
                                         else MaterialTheme.colorScheme.outline,
                                         shape = CircleShape
                                     )
-                                    .clickable {
+                                    .clickable(enabled = !formBlocked) {
                                         daysOfWeekMask = RecurringSchedule.toggleDay(daysOfWeekMask, index)
                                     },
                                 contentAlignment = Alignment.Center
@@ -670,6 +721,7 @@ fun CreateEditTaskScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
+                    enabled = !formBlocked,
                     onClick = {
                         TimePickerDialog(
                             context,
@@ -696,6 +748,7 @@ fun CreateEditTaskScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedCard(
+                    enabled = !formBlocked,
                     onClick = { showDatePicker(true) },
                     border = if (!deadlineValid) {
                         BorderStroke(1.5.dp, MaterialTheme.colorScheme.error)
@@ -755,6 +808,7 @@ fun CreateEditTaskScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedButton(
+                    enabled = !formBlocked,
                         onClick = { showDatePicker(false) },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -776,6 +830,7 @@ fun CreateEditTaskScreen(
                     }
 
                     OutlinedButton(
+                    enabled = !formBlocked,
                         onClick = showTimePicker,
                         modifier = Modifier.weight(1f)
                     ) {
@@ -807,28 +862,16 @@ fun CreateEditTaskScreen(
                 }
             }
 
-            // Chọn thời gian nhắc trước hạn chót: 30 phút / 1 giờ / 2 giờ
             Spacer(modifier = Modifier.height(16.dp))
-            Text(stringResource(R.string.tk_reminder_lead_label), fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val leadOptions = listOf(
-                    30 to R.string.tk_reminder_30m,
-                    60 to R.string.tk_reminder_1h,
-                    120 to R.string.tk_reminder_2h
-                )
-                leadOptions.forEach { (minutes, labelRes) ->
-                    FilterChip(
-                        selected = reminderLeadMinutes == minutes,
-                        onClick = { reminderLeadMinutes = minutes },
-                        label = { Text(stringResource(labelRes), fontSize = 13.sp) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+            val reminderLabel = when (reminderLeadMinutes) {
+                60 -> R.string.tk_reminder_1h
+                120 -> R.string.tk_reminder_2h
+                else -> R.string.tk_reminder_30m
             }
+            Text(
+                stringResource(R.string.tk_reminder_global_summary, stringResource(reminderLabel)),
+                fontSize = 13.sp
+            )
             if (isFlexibleMode) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -843,13 +886,7 @@ fun CreateEditTaskScreen(
             Button(
                 onClick = {
                     if (isRecurringMode) {
-                        val actor = currentUser ?: return@Button
-                        val recurringAssigneeId = if (eachSelected.size == 1) eachSelected.single().id else ""
-                        val recurringAssignMode = if (eachSelected.size >= 2 && assignMode == AssignMode.EACH) {
-                            RecurringAssignmentMode.EACH_MEMBER
-                        } else {
-                            RecurringAssignmentMode.SHARED
-                        }
+                        val recurringAssignMode = recurringAssignmentMode
                         val input = RecurringScheduleInput(
                             title = title,
                             description = description,
@@ -862,13 +899,17 @@ fun CreateEditTaskScreen(
                             assignmentMode = recurringAssignMode,
                             reminderLeadMinutes = reminderLeadMinutes
                         )
-                        isSaving = true
-                        awaitingRecurringResult = true
-                        val opId = recurringViewModel.save(actor, null, input, recurringRequestId)
-                        if (opId == null) {
-                            isSaving = false
-                            awaitingRecurringResult = false
-                        }
+                        recurringSession.save(
+                            UnifiedRecurringDraft(
+                                requestId = recurringSession.requestId,
+                                editingId = recurringSession.editingId,
+                                title = title, description = description, points = pointsText,
+                                priority = selectedPriority, assigneeIds = eachSelectedIds,
+                                assignmentMode = recurringAssignMode, repeatType = repeatType,
+                                daysMask = daysOfWeekMask, dueMinute = recurringDueMinute
+                            ),
+                            input
+                        )
                         return@Button
                     }
 
@@ -916,10 +957,11 @@ fun CreateEditTaskScreen(
                             deadlineTimestamp = selectedDeadlineTimestamp,
                             taskMode = targetTaskMode,
                             targetCount = effectiveTargetCount,
+                            abandonedRecurringRequestId = recurringSession.requestId,
                             reminderLeadMinutes = reminderLeadMinutes,
                             onResult = handleResult
                         )
-                    } else if (assignMode == AssignMode.EACH) {
+                    } else if (isFlexibleMode || assignMode == AssignMode.EACH) {
                         viewModel.createTaskForEach(
                             title = title,
                             description = description,
@@ -929,6 +971,7 @@ fun CreateEditTaskScreen(
                             deadlineTimestamp = selectedDeadlineTimestamp,
                             taskMode = targetTaskMode,
                             targetCount = effectiveTargetCount,
+                            abandonedRecurringRequestId = recurringSession.requestId,
                             reminderLeadMinutes = reminderLeadMinutes,
                             onResult = handleResult
                         )
@@ -942,12 +985,13 @@ fun CreateEditTaskScreen(
                             deadlineTimestamp = selectedDeadlineTimestamp,
                             taskMode = targetTaskMode,
                             targetCount = effectiveTargetCount,
+                            abandonedRecurringRequestId = recurringSession.requestId,
                             reminderLeadMinutes = reminderLeadMinutes,
                             onResult = handleResult
                         )
                     }
                 },
-                enabled = title.isNotBlank() && pointsValid && assigneeValid && deadlineValid && recurringDaysValid && !busy &&
+                enabled = title.isNotBlank() && pointsValid && assigneeValid && deadlineValid && recurringDaysValid && !formBlocked && recurringPermission &&
                         (!isEditing || (editingTask != null && prefilled)),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -958,6 +1002,7 @@ fun CreateEditTaskScreen(
                         when {
                             busy -> R.string.tk_form_saving
                             isEditing -> R.string.tk_btn_save_changes
+                            isRecurringMode && recurringSession.editingId != null -> R.string.rec_save
                             isRecurringMode -> R.string.tk_btn_create_recurring
                             else -> R.string.btn_create_and_assign
                         }
@@ -978,16 +1023,17 @@ private fun AssignModeOption(
     selected: Boolean,
     text: String,
     hint: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 2.dp)
     ) {
-        RadioButton(selected = selected, onClick = onClick)
+        RadioButton(selected = selected, enabled = enabled, onClick = onClick)
         Column {
             Text(text, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
             if (hint != null) {

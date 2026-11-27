@@ -814,7 +814,7 @@ class TaskRepositoryTest {
         assertEquals(30, points(bin.id))
         assertEquals(TaskActionResult.INVALID_STATE, repository.submitTaskProof(flexForBin.id, proof, "lượt 4", bin))
 
-        // 2. Việc linh hoạt giao chung cả nhà (2 lần/tuần): Na làm lượt 1, Bin làm lượt 2
+        // 2. Giao cùng lúc cho Na và Bin: mỗi người tự hoàn thành đủ 2 lượt riêng.
         val flexShared = Task(
             id = "t-flex-shared",
             title = "Rửa bát cả tuần",
@@ -826,19 +826,26 @@ class TaskRepositoryTest {
             targetCount = 2,
             reminderLeadMinutes = 120
         )
-        assertEquals(TaskActionResult.SUCCESS, repository.createTask(flexShared, parent))
-        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(flexShared.id, proof, "Na rửa", na))
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(flexShared.id), parent))
-        val afterSharedRound1 = fresh(flexShared.id)
-        assertEquals(1, afterSharedRound1.completedCount)
-        assertEquals(TaskStatus.TODO, afterSharedRound1.status)
-        assertEquals("", afterSharedRound1.assignedToUserId) // Trả lại cho cả nhà làm lượt 2
-        assertEquals(15, points(na.id))
-
-        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(flexShared.id, proof, "Bin rửa", bin))
-        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(flexShared.id), parent))
-        assertEquals(2, fresh(flexShared.id).completedCount)
-        assertEquals(TaskStatus.COMPLETED, fresh(flexShared.id).status)
-        assertEquals(45, points(bin.id))
+        // Mục tiêu linh hoạt không cộng chung tiến độ của Na và Bin.
+        assertEquals(TaskActionResult.INVALID_INPUT, repository.createTask(flexShared, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.createTaskForEach(flexShared, listOf(na.id, bin.id), parent))
+        val separateGoals = db.taskDao().getTasksByFamily(family).first()
+            .filter { it.isFlexibleWeekly && it.id != flexForBin.id }
+        val naGoal = separateGoals.single { it.assignedToUserId == na.id }
+        val binGoal = separateGoals.single { it.assignedToUserId == bin.id }
+        repeat(2) {
+            assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(naGoal.id, proof, "Na rửa", na))
+            assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(naGoal.id), parent))
+            assertEquals(0, fresh(binGoal.id).completedCount)
+        }
+        assertEquals(TaskStatus.COMPLETED, fresh(naGoal.id).status)
+        assertEquals(30, points(na.id))
+        repeat(2) {
+            assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(binGoal.id, proof, "Bin rửa", bin))
+            assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(binGoal.id), parent))
+        }
+        assertEquals(2, fresh(binGoal.id).completedCount)
+        assertEquals(TaskStatus.COMPLETED, fresh(binGoal.id).status)
+        assertEquals(60, points(bin.id))
     }
 }

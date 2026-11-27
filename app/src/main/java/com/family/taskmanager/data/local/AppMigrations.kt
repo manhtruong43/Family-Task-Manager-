@@ -14,14 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * Nếu quên bước 2, app sẽ dừng với lỗi "A migration from X to Y was required" ngay khi mở,
  * thay vì âm thầm XÓA SẠCH dữ liệu như trước (fallbackToDestructiveMigration).
  *
- * Ví dụ khi thêm cột "category" cho bảng tasks ở phiên bản 5:
- *
- *     val MIGRATION_4_5 = object : Migration(4, 5) {
- *         override fun migrate(db: SupportSQLiteDatabase) {
- *             db.execSQL("ALTER TABLE tasks ADD COLUMN category TEXT NOT NULL DEFAULT ''")
- *         }
- *     }
- *     val ALL: Array<Migration> = arrayOf(MIGRATION_4_5)
+ * Các migration được đăng ký trong [ALL] và kiểm tra bằng fixture schema cũ.
  */
 object AppMigrations {
 
@@ -92,11 +85,73 @@ object AppMigrations {
         }
     }
 
+    /**
+     * 9 -> 10: giữ biên nhận điểm sau khi sửa/hủy nhiệm vụ hoặc thành viên rời nhóm.
+     * Không cộng lại vào users.points. DB 9 không có lịch sử điểm từng lượt, nên bản
+     * ghi linh hoạt cũ được đánh dấu ước tính; không giả định đây là số liệu chính xác.
+     */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS task_approvals (" +
+                    "taskId TEXT NOT NULL, submissionRevision INTEGER NOT NULL, familyId TEXT NOT NULL, " +
+                    "userId TEXT NOT NULL, points INTEGER NOT NULL, taskCreatedAt INTEGER NOT NULL, " +
+                    "approvedAt INTEGER NOT NULL, approvedRounds INTEGER NOT NULL DEFAULT 1, " +
+                    "legacyEstimate INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(taskId, submissionRevision))"
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_task_approvals_familyId ON task_approvals(familyId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_task_approvals_userId ON task_approvals(userId)")
+            // -1 là biên nhận gộp dữ liệu cũ, không đụng phiên bản các lượt nộp mới.
+            db.execSQL(
+                "INSERT INTO task_approvals " +
+                    "(taskId, submissionRevision, familyId, userId, points, taskCreatedAt, approvedAt, approvedRounds, legacyEstimate) " +
+                    "SELECT id, -1, familyId, CASE WHEN taskMode = 'FLEXIBLE_WEEKLY' AND openToAll = 1 THEN '' ELSE assignedToUserId END, " +
+                    "CASE WHEN taskMode = 'FLEXIBLE_WEEKLY' THEN points * completedCount ELSE points END, " +
+                    "createdAt, createdAt, CASE WHEN taskMode = 'FLEXIBLE_WEEKLY' THEN completedCount ELSE 1 END, " +
+                    "CASE WHEN taskMode = 'FLEXIBLE_WEEKLY' THEN 1 ELSE 0 END " +
+                    "FROM tasks WHERE (taskMode = 'FIXED' AND status = 'COMPLETED') " +
+                    "OR (taskMode = 'FLEXIBLE_WEEKLY' AND completedCount > 0)"
+            )
+            // Việc linh hoạt chung ở bản thử nghiệm 9 không xác định được tiến độ của từng người.
+            // Giữ biên nhận cũ bên trên; phần chưa hoàn thành bắt đầu lại thành mục tiêu cá nhân.
+            db.execSQL(
+                "UPDATE tasks SET completedCount = 0, " +
+                    "openToAll = CASE WHEN assignedToUserId = '' THEN 1 ELSE 0 END " +
+                    "WHERE taskMode = 'FLEXIBLE_WEEKLY' AND openToAll = 1 AND status != 'COMPLETED'"
+            )
+        }
+    }
+
+    /** 10 -> 11: biên nhận nhắc và hộp thư nguyên tử; tách các lần giao việc. */
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE tasks ADD COLUMN reminderGeneration INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE task_approvals ADD COLUMN workerName TEXT NOT NULL DEFAULT ''")
+            db.execSQL(
+                "UPDATE task_approvals SET workerName = COALESCE(" +
+                    "(SELECT name FROM users WHERE users.id = task_approvals.userId), '')"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS deadline_reminder_receipts (" +
+                    "taskId TEXT NOT NULL, deadlineTimestamp INTEGER NOT NULL, generation INTEGER NOT NULL, " +
+                    "stageKey TEXT NOT NULL, PRIMARY KEY(taskId, deadlineTimestamp, generation, stageKey), " +
+                    "FOREIGN KEY(taskId) REFERENCES tasks(id) ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            // Việc linh hoạt đang chờ người nhận là mục tiêu đã trả về nhóm ở bản cũ.
+            db.execSQL(
+                "UPDATE tasks SET reminderGeneration = 1 WHERE taskMode = 'FLEXIBLE_WEEKLY' " +
+                    "AND assignedToUserId = '' AND status != 'COMPLETED'"
+            )
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_4_5,
         MIGRATION_5_6,
         MIGRATION_6_7,
         MIGRATION_7_8,
-        MIGRATION_8_9
+        MIGRATION_8_9,
+        MIGRATION_9_10,
+        MIGRATION_10_11
     )
 }

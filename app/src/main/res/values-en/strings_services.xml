@@ -229,4 +229,14 @@
     <!-- OTP mô phỏng (Trường gọi từ LoginViewModel) -->
     <string name="noti_otp_title">🔐 Verification code (simulated email)</string>
     <string name="noti_otp_message">The OTP for %1$s is: %2$s. Valid for 5 minutes.</string>
+    <string name="set_reminder_lead_title">Deadline reminder</string>
+    <string name="set_reminder_lead_desc">Applies to all tasks in the app, including existing tasks.</string>
+    <string name="tk_reminder_global_summary">Reminder: %1$s before the deadline (app setting)</string>
+    <string name="stat_legacy_points_hint">Older flexible-task points are estimates; past shared-task points cannot be assigned to individual members reliably. New approvals record the exact points for each round.</string>
+    <string name="stat_task_total_points">Task total: +%1$d⭐</string>
+    <string name="stat_worker_points">%1$s: %2$s+%3$d⭐</string>
+    <string name="stat_unknown_worker">Unattributed</string>
+    <string name="stat_previous_worker">Previous member</string>
+    <string name="stat_departed_member">Left family</string>
+    <string name="set_msg_reminder_save_failed">Could not save the reminder time. Please try again.</string>
 </resources>

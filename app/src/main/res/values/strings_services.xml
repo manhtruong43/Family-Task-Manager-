@@ -229,4 +229,14 @@
     <!-- OTP mô phỏng (Trường gọi từ LoginViewModel) -->
     <string name="noti_otp_title">🔐 Mã xác thực OTP (mô phỏng email)</string>
     <string name="noti_otp_message">Mã OTP cho %1$s là: %2$s. Hiệu lực 5 phút.</string>
+    <string name="set_reminder_lead_title">Nhắc trước hạn chót</string>
+    <string name="set_reminder_lead_desc">Áp dụng cho mọi nhiệm vụ trên ứng dụng, kể cả nhiệm vụ đã tạo.</string>
+    <string name="tk_reminder_global_summary">Nhắc trước hạn: %1$s (cài đặt chung của ứng dụng)</string>
+    <string name="stat_legacy_points_hint">Điểm linh hoạt từ bản cũ chỉ là ước tính; việc chung cũ chưa xác định được điểm từng người. Các lượt duyệt mới ghi nhận điểm chính xác riêng từng lần.</string>
+    <string name="stat_task_total_points">Tổng việc: +%1$d⭐</string>
+    <string name="stat_worker_points">%1$s: %2$s+%3$d⭐</string>
+    <string name="stat_unknown_worker">Chưa xác định người làm</string>
+    <string name="stat_previous_worker">Thành viên trước</string>
+    <string name="stat_departed_member">Đã rời nhóm</string>
+    <string name="set_msg_reminder_save_failed">Không lưu được thời gian nhắc. Vui lòng thử lại.</string>
 </resources>

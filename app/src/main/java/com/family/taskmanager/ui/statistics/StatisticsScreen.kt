@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,6 +53,9 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +66,7 @@ import com.family.taskmanager.data.model.Task
 import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.model.User
 import com.family.taskmanager.ui.home.HomeViewModel
+import com.family.taskmanager.ui.home.approvalOwner
 import com.family.taskmanager.ui.theme.GlassCard
 import com.family.taskmanager.ui.theme.GlassGradientBackground
 import java.text.SimpleDateFormat
@@ -88,8 +93,7 @@ private data class MemberStat(
     val user: User,
     val total: Int,
     val done: Int,
-    val rejected: Int,
-    val pointsEarned: Int
+    val rejected: Int
 ) {
     val rate: Float get() = if (total > 0) done.toFloat() / total else 0f
 }
@@ -100,23 +104,39 @@ fun StatisticsScreen(
     viewModel: HomeViewModel,
     onBack: () -> Unit
 ) {
-    val allTasks by viewModel.familyTasks.collectAsState()
-    val members by viewModel.familyMembers.collectAsState()
+    val taskRows by viewModel.familyTasks.collectAsState()
+    val approvalState by viewModel.familyTaskApprovals.collectAsState()
+    val memberRows by viewModel.familyMembers.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
+    val activeAccountId by viewModel.activeAccountId.collectAsState()
+    val owner = approvalOwner(activeAccountId, currentUser)
+    val allApprovals = remember(approvalState, owner) { approvalState.visibleTo(owner) }
+    val allTasks = remember(taskRows, owner) {
+        if (owner == null) emptyList() else taskRows.filter { it.familyId == owner.familyId }
+    }
+    val members = remember(memberRows, owner) {
+        if (owner == null) emptyList() else memberRows.filter { it.familyId == owner.familyId }
+    }
     val locale: Locale = LocalConfiguration.current.locales[0]
 
     var period by rememberSaveable { mutableStateOf(StatPeriod.WEEK) }
     var showAllHistory by rememberSaveable { mutableStateOf(false) }
 
     // ─── Lọc nhiệm vụ theo khoảng thời gian ───
-    val tasks = remember(allTasks, period) {
-        val days = period.days
-        if (days == null) allTasks
-        else {
-            val from = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
-            allTasks.filter { it.createdAt >= from }
-        }
+    val createdTimes = remember(allTasks, allApprovals) {
+        allTasks.map { it.createdAt } + allApprovals.map { it.taskCreatedAt }
     }
+    val fromMillis = rememberRollingStatisticsCutoff(period.days, createdTimes)
+    val tasks = remember(allTasks, fromMillis) {
+        val from = fromMillis
+        if (from == null) allTasks else allTasks.filter { it.createdAt >= from }
+    }
+    // Điểm được lấy từ từng lượt đã duyệt, kể cả mục tiêu chưa đủ N hoặc việc đã bị hủy.
+    val approvals = remember(allApprovals, fromMillis) {
+        val from = fromMillis
+        if (from == null) allApprovals else allApprovals.filter { it.taskCreatedAt >= from }
+    }
+    val earnings = remember(approvals) { earningsByTask(approvals) }
 
     val totalTasks = tasks.size
     val completedTasks = tasks.count { it.status == TaskStatus.COMPLETED }
@@ -134,12 +154,11 @@ fun StatisticsScreen(
                 user = user,
                 total = mine.size,
                 done = mine.count { it.status == TaskStatus.COMPLETED },
-                rejected = mine.count { it.status == TaskStatus.REJECTED },
-                pointsEarned = mine.filter { it.status == TaskStatus.COMPLETED }.sumOf { it.points }
+                rejected = mine.count { it.status == TaskStatus.REJECTED }
             )
         }
     }
-    val earnedRanking = memberStats.sortedByDescending { it.pointsEarned }
+    val earnedRanking = remember(members, approvals) { earnedPointEntries(members, approvals) }
     val balanceRanking = members.sortedByDescending { it.points }
 
     // ─── Lịch sử nhiệm vụ đã hoàn thành ───
@@ -272,24 +291,7 @@ fun StatisticsScreen(
                 // ─── Bar Chart: điểm kiếm được trong kỳ ───
                 if (earnedRanking.isNotEmpty()) {
                     item {
-                        GlassCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                SectionTitle(Icons.Filled.Stars, stringResource(R.string.stat_points_earned_title))
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                val maxPoints = (earnedRanking.maxOfOrNull { it.pointsEarned } ?: 1).coerceAtLeast(1)
-                                val barColors = listOf(ColorIndigo, ColorDone, ColorPending, Color(0xFFEC4899), Color(0xFF14B8A6))
-
-                                earnedRanking.forEachIndexed { index, stat ->
-                                    PointsBarRow(
-                                        stat = stat,
-                                        index = index,
-                                        maxPoints = maxPoints,
-                                        barColor = barColors[index % barColors.size]
-                                    )
-                                }
-                            }
-                        }
+                        EarnedPointsChart(earnedRanking)
                     }
                 }
 
@@ -356,7 +358,7 @@ fun StatisticsScreen(
                                 )
                             } else {
                                 visibleHistory.forEach { task ->
-                                    HistoryRow(task = task, locale = locale)
+                                    HistoryRow(task = task, locale = locale, earnings = earnings[task.id].orEmpty())
                                     Spacer(modifier = Modifier.height(6.dp))
                                 }
                                 if (history.size > 5) {
@@ -429,9 +431,33 @@ private fun SectionTitle(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 }
 
 @Composable
-private fun PointsBarRow(stat: MemberStat, index: Int, maxPoints: Int, barColor: Color) {
-    val barAnim = remember(stat.user.id) { Animatable(0f) }
-    LaunchedEffect(stat.pointsEarned, maxPoints) {
+internal fun EarnedPointsChart(entries: List<EarnedPointEntry>) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            SectionTitle(Icons.Filled.Stars, stringResource(R.string.stat_points_earned_title))
+            if (entries.any { it.estimated }) {
+                Text(
+                    stringResource(R.string.stat_legacy_points_hint),
+                    color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            val maxPoints = (entries.maxOfOrNull { it.pointsEarned } ?: 1).coerceAtLeast(1)
+            val colors = listOf(ColorIndigo, ColorDone, ColorPending, Color(0xFFEC4899), Color(0xFF14B8A6))
+            entries.forEachIndexed { index, entry ->
+                key(entry.userId) {
+                    PointsBarRow(entry, index, maxPoints, colors[index % colors.size])
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PointsBarRow(stat: EarnedPointEntry, index: Int, maxPoints: Int, barColor: Color) {
+    val barAnim = remember(stat.userId) { Animatable(0f) }
+    LaunchedEffect(stat.userId, stat.pointsEarned, maxPoints) {
         barAnim.animateTo(
             targetValue = stat.pointsEarned.toFloat() / maxPoints,
             animationSpec = tween(900, delayMillis = index * 100)
@@ -446,21 +472,25 @@ private fun PointsBarRow(stat: MemberStat, index: Int, maxPoints: Int, barColor:
                 .clip(CircleShape)
                 .background(barColor.copy(alpha = 0.3f))
         ) {
-            Text(stat.user.avatarUrl, fontSize = 16.sp)
+            Text(stat.avatarUrl, fontSize = 16.sp)
         }
         Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = stat.user.name,
-            color = Color.White,
-            fontSize = 13.sp,
-            modifier = Modifier.width(70.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(modifier = Modifier.width(85.dp)) {
+            val name = when {
+                stat.userId.isBlank() -> stringResource(R.string.stat_unknown_worker)
+                stat.name.isNotBlank() -> stat.name
+                else -> stringResource(R.string.stat_previous_worker)
+            }
+            Text(name, color = Color.White, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!stat.isCurrentMember && stat.userId.isNotBlank()) {
+                Text(stringResource(R.string.stat_departed_member), color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+            }
+        }
         Spacer(modifier = Modifier.width(8.dp))
         Box(
             modifier = Modifier
                 .weight(1f)
+                .semantics { progressBarRangeInfo = ProgressBarRangeInfo(barAnim.value, 0f..1f) }
                 .height(14.dp)
                 .clip(RoundedCornerShape(7.dp))
                 .background(Color.White.copy(alpha = 0.1f))
@@ -475,7 +505,7 @@ private fun PointsBarRow(stat: MemberStat, index: Int, maxPoints: Int, barColor:
         }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = "+${stat.pointsEarned}⭐",
+            text = "${if (stat.estimated) "~" else ""}+${stat.pointsEarned}⭐",
             color = ColorGold,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
@@ -532,7 +562,7 @@ private fun MemberProductivityRow(stat: MemberStat) {
 }
 
 @Composable
-private fun HistoryRow(task: Task, locale: Locale) {
+internal fun HistoryRow(task: Task, locale: Locale, earnings: List<WorkerEarnings>) {
     val dateText = remember(task.createdAt, locale) {
         SimpleDateFormat("dd/MM/yyyy", locale).format(Date(task.createdAt))
     }
@@ -565,8 +595,28 @@ private fun HistoryRow(task: Task, locale: Locale) {
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 11.sp
             )
+            if (earnings.size > 1 || earnings.any { it.userId.isBlank() || it.estimated }) {
+                earnings.forEach { worker ->
+                    val name = when {
+                        worker.userId.isBlank() -> stringResource(R.string.stat_unknown_worker)
+                        worker.name.isNotBlank() -> worker.name
+                        else -> stringResource(R.string.stat_previous_worker)
+                    }
+                    Text(
+                        stringResource(R.string.stat_worker_points, name, if (worker.estimated) "~" else "", worker.points),
+                        color = ColorGold, fontSize = 11.sp
+                    )
+                }
+            }
         }
-        Text("+${task.points}⭐", color = ColorGold, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        val total = earnings.sumOf { it.points }
+        val multipleWorkers = earnings.size > 1 || earnings.any { it.userId != task.assignedToUserId }
+        val estimatePrefix = if (earnings.any { it.estimated }) "~" else ""
+        Text(
+            if (multipleWorkers) estimatePrefix + stringResource(R.string.stat_task_total_points, total)
+            else "$estimatePrefix+${total}⭐",
+            color = ColorGold, fontSize = 12.sp, fontWeight = FontWeight.Bold
+        )
     }
 }
 

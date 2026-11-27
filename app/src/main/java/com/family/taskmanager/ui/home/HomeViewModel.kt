@@ -1,6 +1,12 @@
 package com.family.taskmanager.ui.home
 
 import android.net.Uri
+import android.database.sqlite.SQLiteException
+import android.util.Log
+import com.family.taskmanager.data.repository.RecurringScheduleRepository
+import com.family.taskmanager.data.repository.CreationRequestStatus
+import androidx.lifecycle.SavedStateHandle
+import com.family.taskmanager.ui.task.UnifiedRecurringDraftStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.family.taskmanager.data.model.FamilyGroup
@@ -14,6 +20,7 @@ import com.family.taskmanager.data.repository.ProofImageStorage
 import com.family.taskmanager.data.repository.TaskActionResult
 import com.family.taskmanager.data.repository.TaskRepository
 import com.family.taskmanager.data.repository.UserRepository
+import com.family.taskmanager.data.service.NotificationPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,16 +42,24 @@ class HomeViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
     private val userRepository: UserRepository,
     private val familyRepository: FamilyRepository,
-    private val proofImageStorage: ProofImageStorage
+    private val proofImageStorage: ProofImageStorage,
+    private val recurringRepository: RecurringScheduleRepository,
+    notificationPreferences: NotificationPreferences,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
+    internal val recurringDraftStore = UnifiedRecurringDraftStore(savedStateHandle)
+
+    val reminderLeadMinutes: StateFlow<Int> = notificationPreferences.reminderLeadMinutes
+
     private val _currentUserId = MutableStateFlow<String?>(null)
+    val activeAccountId: StateFlow<String?> = _currentUserId.asStateFlow()
 
     val currentUser: StateFlow<User?> = _currentUserId
         .flatMapLatest { id ->
             if (id != null) userRepository.getUser(id) else flowOf(null)
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000, replayExpirationMillis = 0), null)
 
     fun setCurrentUser(user: User) {
         _currentUserId.value = user.id
@@ -77,6 +92,10 @@ class HomeViewModel @Inject constructor(
             } else flowOf(emptyList())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    internal val familyTaskApprovals = familyApprovalState(
+        _currentUserId, currentUser, viewModelScope, taskRepository::getApprovalsByFamily
+    )
 
     /** Đang gửi báo cáo minh chứng (chép ảnh + lưu DB) -> khóa nút Gửi để không bấm 2 lần. */
     private val _isSubmittingProof = MutableStateFlow(false)
@@ -166,8 +185,9 @@ class HomeViewModel @Inject constructor(
         taskMode: com.family.taskmanager.data.model.TaskMode = com.family.taskmanager.data.model.TaskMode.FIXED,
         targetCount: Int = 1,
         reminderLeadMinutes: Int = Task.DEFAULT_REMINDER_LEAD_MINUTES,
+        abandonedRecurringRequestId: String? = null,
         onResult: (TaskActionResult) -> Unit = {}
-    ) = runSaveAction(onResult) { user ->
+    ) = runSaveAction(onResult, abandonedRecurringRequestId) { user ->
         val newTask = Task(
             id = UUID.randomUUID().toString(),
             title = title.trim(),
@@ -253,8 +273,9 @@ class HomeViewModel @Inject constructor(
         taskMode: com.family.taskmanager.data.model.TaskMode = com.family.taskmanager.data.model.TaskMode.FIXED,
         targetCount: Int = 1,
         reminderLeadMinutes: Int = Task.DEFAULT_REMINDER_LEAD_MINUTES,
+        abandonedRecurringRequestId: String? = null,
         onResult: (TaskActionResult) -> Unit = {}
-    ) = runSaveAction(onResult) { user ->
+    ) = runSaveAction(onResult, abandonedRecurringRequestId) { user ->
         val template = Task(
             id = UUID.randomUUID().toString(),
             title = title.trim(),
@@ -309,6 +330,7 @@ class HomeViewModel @Inject constructor(
 
     private fun runSaveAction(
         onResult: (TaskActionResult) -> Unit,
+        abandonedRecurringRequestId: String? = null,
         action: suspend (User) -> TaskActionResult
     ) {
         val user = currentUser.value
@@ -320,10 +342,29 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _isSavingTask.value = true
             try {
-                onResult(action(user))
+                val result = action(user)
+                if (result == TaskActionResult.SUCCESS && abandonedRecurringRequestId != null) {
+                    clearAbandonedDraft(user, abandonedRecurringRequestId)
+                }
+                onResult(result)
             } finally {
                 _isSavingTask.value = false
             }
+        }
+    }
+
+    private suspend fun clearAbandonedDraft(user: User, requestId: String) {
+        val draft = recurringDraftStore.get(user.id, user.familyId)
+        if (draft?.requestId != requestId) return
+        try {
+            // Đọc lại trong transaction, không suy diễn từ lỗi hoặc kết quả tra cứu cũ.
+            val lookup = recurringRepository.resolveCreationRequest(user, requestId)
+            if (lookup.status == CreationRequestStatus.NEW) {
+                recurringDraftStore.clear(user.id, user.familyId, requestId)
+            }
+        } catch (error: SQLiteException) {
+            // Nhiệm vụ thường đã lưu thành công; yêu cầu lịch chưa xác minh phải được giữ lại.
+            Log.w("HomeViewModel", "Preserving unresolved recurring draft after task save", error)
         }
     }
 

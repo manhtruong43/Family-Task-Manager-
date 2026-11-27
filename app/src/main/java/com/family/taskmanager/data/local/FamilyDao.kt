@@ -71,10 +71,11 @@ interface FamilyDao {
      * Việc CHƯA hoàn thành của người rời nhóm -> trả về "Chưa làm" và giao cho cả nhà,
      * để không bị kẹt (người cũ đã rời, người khác lại không có quyền làm việc của họ).
      * Việc đã hoàn thành giữ nguyên để thống kê / lịch sử vẫn đúng.
+     * Người nhận lại mục tiêu linh hoạt bắt đầu từ 0 lượt; điểm cũ nằm ở task_approvals.
      */
     @Query(
         "UPDATE tasks SET assignedToUserId = '', assignedToUserName = '', status = 'TODO', " +
-            "proofImageUrl = '', proofNote = '', openToAll = 1 " +
+            "proofImageUrl = '', proofNote = '', openToAll = 1, completedCount = 0, reminderGeneration = reminderGeneration + 1 " +
             "WHERE familyId = :familyId AND assignedToUserId = :userId " +
             "AND status IN ('TODO', 'IN_PROGRESS', 'REJECTED', 'PENDING_APPROVAL')"
     )
