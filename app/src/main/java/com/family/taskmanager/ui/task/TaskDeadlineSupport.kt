@@ -22,6 +22,25 @@ fun defaultTaskDeadlineMillis(nowMillis: Long = System.currentTimeMillis()): Lon
     }.timeInMillis
 
 /**
+ * Hạn chót mặc định cho việc linh hoạt trong tuần: 20:00 Chủ Nhật tuần hiện tại
+ * (nếu hiện tại đã qua 20:00 Chủ Nhật thì tự chuyển sang 20:00 Chủ Nhật tuần kế tiếp).
+ */
+fun defaultFlexibleWeeklyDeadlineMillis(nowMillis: Long = System.currentTimeMillis()): Long {
+    val cal = Calendar.getInstance().apply { timeInMillis = nowMillis }
+    val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+    val daysUntilSunday = if (dayOfWeek == Calendar.SUNDAY) 0 else (Calendar.SATURDAY - dayOfWeek + 1)
+    cal.add(Calendar.DAY_OF_YEAR, daysUntilSunday)
+    cal.set(Calendar.HOUR_OF_DAY, DEFAULT_DEADLINE_HOUR)
+    cal.set(Calendar.MINUTE, DEFAULT_DEADLINE_MINUTE)
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    if (cal.timeInMillis <= nowMillis) {
+        cal.add(Calendar.DAY_OF_YEAR, 7)
+    }
+    return cal.timeInMillis
+}
+
+/**
  * Kiểm tra hai mốc thời gian có trùng nhau đến từng phút (cùng năm, ngày trong năm, giờ, phút) hay không.
  */
 fun isSameDeadlineMinute(firstMillis: Long, secondMillis: Long): Boolean {

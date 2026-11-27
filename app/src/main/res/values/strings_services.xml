@@ -25,7 +25,9 @@
     <string name="cal_deadline_at">Hạn: %s</string>
     <string name="cal_overdue_at">Quá hạn từ %s</string>
     <string name="cal_no_deadline_hint">Có %d nhiệm vụ chưa đặt hạn chót nên không hiện trên lịch.</string>
-    <string name="cal_reminder_hint">⏰ Ứng dụng sẽ tự nhắc trước hạn chót 30 phút đối với các việc chưa hoàn thành.</string>
+    <string name="cal_reminder_hint">⏰ Ứng dụng tự nhắc trước hạn (30p / 1h / 2h) và nhắc sớm cho việc linh hoạt trong tuần.</string>
+    <string name="cal_flex_section_title">🔁 Việc linh hoạt trong tuần (%1$d)</string>
+    <string name="cal_flex_progress">%1$d/%2$d lần • Hạn %3$s</string>
     <string name="cal_status_todo">Chưa làm</string>
     <string name="cal_status_in_progress">Đang làm</string>
     <string name="cal_status_pending">Chờ duyệt</string>
@@ -53,6 +55,14 @@
 
     <string name="noti_reminder_title">⏰ Sắp đến hạn chót!</string>
     <string name="noti_reminder_message">\"%1$s\" hết hạn lúc %2$s. Người thực hiện: %3$s.</string>
+    <string name="noti_reminder_lead_message">Còn %1$s nữa là đến hạn \"%2$s\" (%3$s). Người thực hiện: %4$s.</string>
+    <string name="noti_lead_30m">30 phút</string>
+    <string name="noti_lead_1h">1 giờ</string>
+    <string name="noti_lead_2h">2 giờ</string>
+    <string name="noti_flex_reminder_title">🔁 Nhắc việc linh hoạt trong tuần</string>
+    <string name="noti_flex_early_message">\"%1$s\" mới xong %2$d/%3$d lần. Bạn còn %4$d lần nữa trước %5$s, hãy làm sớm nhé!</string>
+    <string name="noti_flex_final_day_message">Hôm nay là hạn cuối \"%1$s\"! Còn thiếu %2$d lần (%3$d/%4$d), hoàn thành trước %5$s.</string>
+    <string name="noti_flex_last_call_message">Còn %1$s nữa là hết hạn \"%2$s\"! Hiện mới đạt %3$d/%4$d lần.</string>
     <string name="noti_overdue_title">⚠️ Nhiệm vụ đã quá hạn</string>
     <string name="noti_overdue_message">\"%1$s\" đã quá hạn (%2$s). Người thực hiện: %3$s.</string>
 

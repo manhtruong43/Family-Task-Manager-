@@ -24,7 +24,7 @@ import com.family.taskmanager.data.model.User
         RecurringSchedule::class, // Lịch trình cố định (Chức năng 6 - Dũng)
         RecurringCreationRequest::class
     ],
-    version = 8, // 7->8: biên nhận tạo lịch để không tạo trùng sau khi tiến trình bị tắt
+    version = 9, // 8->9: việc linh hoạt trong tuần (taskMode/targetCount/completedCount) & nhắc trước 30/60/120p
     // Xuất schema ra app/schemas/ (cấu hình trong app/build.gradle.kts) để viết và kiểm tra migration
     exportSchema = true
 )

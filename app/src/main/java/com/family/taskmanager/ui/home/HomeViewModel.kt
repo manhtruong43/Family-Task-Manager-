@@ -163,6 +163,9 @@ class HomeViewModel @Inject constructor(
         priority: TaskPriority,
         points: Int,
         deadlineTimestamp: Long,
+        taskMode: com.family.taskmanager.data.model.TaskMode = com.family.taskmanager.data.model.TaskMode.FIXED,
+        targetCount: Int = 1,
+        reminderLeadMinutes: Int = Task.DEFAULT_REMINDER_LEAD_MINUTES,
         onResult: (TaskActionResult) -> Unit = {}
     ) = runSaveAction(onResult) { user ->
         val newTask = Task(
@@ -177,7 +180,11 @@ class HomeViewModel @Inject constructor(
             priority = priority,
             status = TaskStatus.TODO,
             points = points,
-            deadlineTimestamp = deadlineTimestamp
+            deadlineTimestamp = deadlineTimestamp,
+            taskMode = taskMode,
+            targetCount = if (taskMode == com.family.taskmanager.data.model.TaskMode.FLEXIBLE_WEEKLY) targetCount else 1,
+            completedCount = 0,
+            reminderLeadMinutes = reminderLeadMinutes
         )
         taskRepository.createTask(newTask, user)
     }
@@ -243,6 +250,9 @@ class HomeViewModel @Inject constructor(
         priority: TaskPriority,
         points: Int,
         deadlineTimestamp: Long,
+        taskMode: com.family.taskmanager.data.model.TaskMode = com.family.taskmanager.data.model.TaskMode.FIXED,
+        targetCount: Int = 1,
+        reminderLeadMinutes: Int = Task.DEFAULT_REMINDER_LEAD_MINUTES,
         onResult: (TaskActionResult) -> Unit = {}
     ) = runSaveAction(onResult) { user ->
         val template = Task(
@@ -254,7 +264,11 @@ class HomeViewModel @Inject constructor(
             priority = priority,
             status = TaskStatus.TODO,
             points = points,
-            deadlineTimestamp = deadlineTimestamp
+            deadlineTimestamp = deadlineTimestamp,
+            taskMode = taskMode,
+            targetCount = if (taskMode == com.family.taskmanager.data.model.TaskMode.FLEXIBLE_WEEKLY) targetCount else 1,
+            completedCount = 0,
+            reminderLeadMinutes = reminderLeadMinutes
         )
         taskRepository.createTaskForEach(template, assignees.map { it.id }, user)
     }
@@ -270,6 +284,8 @@ class HomeViewModel @Inject constructor(
         deadlineTimestamp: Long,
         assigneeId: String? = assignedToUser?.id,
         openToAll: Boolean? = null,
+        targetCount: Int? = null,
+        reminderLeadMinutes: Int? = null,
         onResult: (TaskActionResult) -> Unit = {}
     ) = runSaveAction(onResult) { user ->
         taskRepository.updateTask(
@@ -281,7 +297,9 @@ class HomeViewModel @Inject constructor(
             points = points,
             deadlineTimestamp = deadlineTimestamp,
             actor = user,
-            openToAll = openToAll
+            openToAll = openToAll,
+            targetCount = targetCount,
+            reminderLeadMinutes = reminderLeadMinutes
         )
     }
 

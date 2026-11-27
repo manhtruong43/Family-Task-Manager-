@@ -119,6 +119,9 @@
     <string name="tk_noti_proof_message">%1$s đã nộp minh chứng cho việc \"%2$s\". Vui lòng kiểm tra và duyệt!</string>
     <string name="tk_noti_approved_title">✅ Nhiệm vụ được duyệt!</string>
     <string name="tk_noti_approved_message">Chúc mừng! Bạn nhận +%1$d⭐ điểm cho \"%2$s\"</string>
+    <string name="tk_noti_flex_progress_title">✅ Đã duyệt 1 lượt!</string>
+    <string name="tk_noti_flex_progress_message">Đã duyệt lượt %1$d/%2$d cho \"%3$s\" (+%4$d⭐)! Còn %5$d lần nữa trước hạn.</string>
+    <string name="tk_noti_flex_completed_message">🎉 Xuất sắc! Bạn đã hoàn thành đủ %1$d/%2$d lần \"%3$s\" (+%4$d⭐)</string>
     <string name="tk_noti_rejected_title">❌ Nhiệm vụ bị từ chối</string>
     <string name="tk_noti_rejected_message">\"%1$s\" chưa đạt yêu cầu, vui lòng làm lại.</string>
     <string name="tk_form_points_error">Điểm thưởng phải từ 0 đến %1$d</string>
@@ -168,4 +171,23 @@
     <string name="fam_option_no_code">➕ Chưa có mã (Tạo mã mới)</string>
     <string name="role_father_short">Bố</string>
     <string name="role_mother_short">Mẹ</string>
+    <string name="tk_type_label">Loại nhiệm vụ:</string>
+    <string name="tk_type_one_time">Một lần</string>
+    <string name="tk_type_recurring">Lặp lại</string>
+    <string name="tk_type_flexible_weekly">Linh hoạt tuần</string>
+    <string name="tk_flexible_target_label">Số lần cần hoàn thành trong tuần: %1$d lần</string>
+    <string name="tk_flexible_target_hint">Người làm có thể làm vào bất kỳ ngày nào, miễn đủ %1$d lần trước hạn chót (cộng %2$d điểm/lần).</string>
+    <string name="tk_flexible_deadline_label">Hạn chót cuối kỳ (mặc định cuối tuần):</string>
+    <string name="tk_reminder_lead_label">Nhắc trước hạn chót:</string>
+    <string name="tk_reminder_30m">30 phút</string>
+    <string name="tk_reminder_1h">1 giờ</string>
+    <string name="tk_reminder_2h">2 giờ</string>
+    <string name="tk_reminder_flexible_hint">Việc linh hoạt sẽ tự động nhắc sớm giữa tuần, theo số lần còn thiếu và ngày cuối hạn.</string>
+    <string name="tk_btn_create_recurring">Tạo &amp; lưu lịch trình</string>
+    <string name="tk_flex_badge">🔁 %1$d/%2$d lần</string>
+    <string name="tk_detail_flex_progress">📊 Tiến độ tuần: %1$d / %2$d lần (còn %3$d lần)</string>
+    <string name="tk_detail_flex_done">📊 Tiến độ tuần: %1$d / %2$d lần (Đã hoàn thành)</string>
+    <string name="tk_detail_reminder_lead">🔔 Nhắc trước: %1$s</string>
+    <string name="tk_btn_approve_round">Duyệt lượt %1$d/%2$d</string>
+    <string name="tk_recurring_assign_hint">Lịch trình lặp lại hỗ trợ giao 1 người hoặc giao cho cả nhà (ai làm cũng được / mỗi người một việc).</string>
 </resources>

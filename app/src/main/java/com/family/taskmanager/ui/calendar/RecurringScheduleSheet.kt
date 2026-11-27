@@ -239,7 +239,8 @@ fun RecurringScheduleSheet(
     onSave: (requestId: String, editingId: String?, input: RecurringScheduleInput) -> String?,
     onToggleActive: (RecurringSchedule, Boolean) -> Unit,
     onDelete: (RecurringSchedule) -> Unit,
-    visible: Boolean = true
+    visible: Boolean = true,
+    onCreateNewSchedule: (() -> Unit)? = null
 ) {
     var editorTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var showEditor by rememberSaveable { mutableStateOf(false) }
@@ -337,11 +338,15 @@ fun RecurringScheduleSheet(
             if (isAdmin) {
                 Button(
                     onClick = {
-                        editorTargetId = null
-                        interruptedEditReview = false
-                        editorRequestId = unresolvedCreationId ?: UUID.randomUUID().toString()
-                        showEditor = true
-                        if (unresolvedCreationId != null) onResolveEditor(editorRequestId, true)
+                        if (onCreateNewSchedule != null && unresolvedCreationId == null) {
+                            onCreateNewSchedule()
+                        } else {
+                            editorTargetId = null
+                            interruptedEditReview = false
+                            editorRequestId = unresolvedCreationId ?: UUID.randomUUID().toString()
+                            showEditor = true
+                            if (unresolvedCreationId != null) onResolveEditor(editorRequestId, true)
+                        }
                     },
                     enabled = !dismissBlocked(),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),

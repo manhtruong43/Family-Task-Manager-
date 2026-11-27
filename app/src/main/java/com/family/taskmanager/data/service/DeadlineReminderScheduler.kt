@@ -81,19 +81,23 @@ class DeadlineReminderScheduler @Inject constructor(
         val now = System.currentTimeMillis()
         preferences.pruneReminded(tasks.map { it.id }.toSet())
 
-        val activeTasks = tasks.filter {
-            it.status in REMINDABLE_STATUSES && it.deadlineTimestamp > now
+        val activePlans = tasks.mapNotNull { task ->
+            val plan = DeadlineReminderPlanner.nextReminderFor(
+                task = task,
+                nowMillis = now,
+                wasReminded = { stageKey -> preferences.wasReminded(task.id, task.deadlineTimestamp, stageKey) },
+                minDelayMs = MIN_DELAY_MS
+            )
+            plan?.let { task to it }
         }
-        val activeIds = activeTasks.map { it.id }.toSet()
+        val activeIds = activePlans.map { it.first.id }.toSet()
 
-        // Hủy báo thức của các task đã xong / bị xóa / đã quá hạn
+        // Hủy báo thức của các task đã xong / bị xóa / đã quá hạn / đã nhắc hết mốc
         (scheduledTaskIds - activeIds).forEach { cancelAlarm(it) }
         scheduledTaskIds.clear()
 
-        activeTasks.forEach { task ->
-            if (preferences.wasReminded(task.id, task.deadlineTimestamp)) return@forEach
-            val triggerAt = maxOf(task.deadlineTimestamp - LEAD_TIME_MS, now + MIN_DELAY_MS)
-            scheduleAlarm(task.id, triggerAt)
+        activePlans.forEach { (task, plan) ->
+            scheduleAlarm(task.id, plan.triggerAtMillis)
             scheduledTaskIds.add(task.id)
         }
     }
@@ -142,8 +146,24 @@ class DeadlineReminderScheduler @Inject constructor(
     suspend fun onReminderFired(taskId: String) {
         val task = notificationDao.getTaskById(taskId) ?: return
         if (task.status !in REMINDABLE_STATUSES || task.deadlineTimestamp <= 0L) return
-        if (preferences.wasReminded(task.id, task.deadlineTimestamp)) return
-        preferences.markReminded(task.id, task.deadlineTimestamp)
+
+        val now = System.currentTimeMillis()
+        val leadMinutes = DeadlineReminderPlanner.normalizedLeadMinutes(task.reminderLeadMinutes)
+        val isOverdue = task.deadlineTimestamp <= now
+
+        val firedPlan = if (!isOverdue) {
+            DeadlineReminderPlanner.nextReminderFor(
+                task = task,
+                nowMillis = now,
+                wasReminded = { stageKey -> preferences.wasReminded(task.id, task.deadlineTimestamp, stageKey) },
+                minDelayMs = MIN_DELAY_MS
+            )
+        } else {
+            null
+        }
+        val stageKey = firedPlan?.stageKey ?: if (isOverdue) "overdue_c${task.completedCount}" else "fixed_$leadMinutes"
+        if (preferences.wasReminded(task.id, task.deadlineTimestamp, stageKey)) return
+        preferences.markReminded(task.id, task.deadlineTimestamp, stageKey)
 
         val res = ServiceLocale.localizedContext(context)
         val locale = ServiceLocale.currentLocale(context)
@@ -153,17 +173,65 @@ class DeadlineReminderScheduler @Inject constructor(
         } else {
             task.assignedToUserName
         }
-        val isOverdue = task.deadlineTimestamp <= System.currentTimeMillis()
+        val leadLabel = when (leadMinutes) {
+            60 -> res.getString(R.string.noti_lead_1h)
+            120 -> res.getString(R.string.noti_lead_2h)
+            else -> res.getString(R.string.noti_lead_30m)
+        }
 
-        val title = res.getString(
-            if (isOverdue) R.string.noti_overdue_title else R.string.noti_reminder_title
-        )
-        val message = res.getString(
-            if (isOverdue) R.string.noti_overdue_message else R.string.noti_reminder_message,
-            task.title,
-            deadlineText,
-            assignee
-        )
+        val (title, message) = when {
+            isOverdue -> {
+                res.getString(R.string.noti_overdue_title) to res.getString(
+                    R.string.noti_overdue_message,
+                    task.title,
+                    deadlineText,
+                    assignee
+                )
+            }
+            task.isFlexibleWeekly -> {
+                val remaining = task.remainingCount
+                when (firedPlan?.stage) {
+                    ReminderStage.FLEX_LAST_CALL -> {
+                        res.getString(R.string.noti_flex_reminder_title) to res.getString(
+                            R.string.noti_flex_last_call_message,
+                            leadLabel,
+                            task.title,
+                            task.completedCount,
+                            task.targetCount
+                        )
+                    }
+                    ReminderStage.FLEX_FINAL_DAY -> {
+                        res.getString(R.string.noti_flex_reminder_title) to res.getString(
+                            R.string.noti_flex_final_day_message,
+                            task.title,
+                            remaining,
+                            task.completedCount,
+                            task.targetCount,
+                            deadlineText
+                        )
+                    }
+                    else -> {
+                        res.getString(R.string.noti_flex_reminder_title) to res.getString(
+                            R.string.noti_flex_early_message,
+                            task.title,
+                            task.completedCount,
+                            task.targetCount,
+                            remaining,
+                            deadlineText
+                        )
+                    }
+                }
+            }
+            else -> {
+                res.getString(R.string.noti_reminder_title) to res.getString(
+                    R.string.noti_reminder_lead_message,
+                    leadLabel,
+                    task.title,
+                    deadlineText,
+                    assignee
+                )
+            }
+        }
 
         // Người nhận: người được giao, hoặc cả nhà nếu task giao cho "Tất cả"
         val receivers = if (task.assignedToUserId.isNotBlank()) {
@@ -171,7 +239,6 @@ class DeadlineReminderScheduler @Inject constructor(
         } else {
             notificationDao.getFamilyMemberIds(task.familyId)
         }
-        val now = System.currentTimeMillis()
         notificationDao.insertNotifications(
             receivers.map { userId ->
                 NotificationItem(
@@ -184,5 +251,10 @@ class DeadlineReminderScheduler @Inject constructor(
             }
         )
         pushNotificationService.sendDeadlineReminder(task.id, title, message)
+
+        // Với việc linh hoạt còn nhiều mốc nhắc, tự lên lịch ngay mốc kế tiếp sau khi mốc hiện tại đã bắn
+        if (task.isFlexibleWeekly && !isOverdue) {
+            syncAlarms(notificationDao.getTasksWithDeadline())
+        }
     }
 }

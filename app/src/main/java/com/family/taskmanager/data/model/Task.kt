@@ -1,5 +1,6 @@
 package com.family.taskmanager.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -13,6 +14,12 @@ enum class TaskStatus {
     PENDING_APPROVAL,   // Chờ duyệt (đã gửi báo cáo + ảnh)
     COMPLETED,          // Đã hoàn thành (đã duyệt + cộng điểm)
     REJECTED            // Bị từ chối (cần làm lại)
+}
+
+/** Chế độ thực hiện nhiệm vụ: cố định 1 lần hoặc linh hoạt đủ số lần trong tuần. */
+enum class TaskMode {
+    FIXED,
+    FLEXIBLE_WEEKLY
 }
 
 @Entity(tableName = "tasks")
@@ -42,8 +49,29 @@ data class Task(
      * Dùng để kiểm tra màn hình duyệt có đang nhìn đúng lượt nộp hiện tại trong DB hay không.
      * Thêm ở phiên bản DB 6 (MIGRATION_5_6).
      */
-    val submissionRevision: Int = 0
+    val submissionRevision: Int = 0,
+    /**
+     * Chế độ nhiệm vụ: FIXED (một lần / sinh từ lịch cố định) hoặc FLEXIBLE_WEEKLY (linh hoạt đủ số lần trong tuần).
+     * Thêm ở phiên bản DB 9 (MIGRATION_8_9).
+     */
+    @ColumnInfo(defaultValue = "'FIXED'")
+    val taskMode: TaskMode = TaskMode.FIXED,
+    /** Số lần cần hoàn thành trong kỳ (mặc định 1; việc linh hoạt từ 2..7). Thêm ở DB 9. */
+    @ColumnInfo(defaultValue = "1")
+    val targetCount: Int = 1,
+    /** Số lần đã được Admin duyệt hoàn thành. Thêm ở DB 9. */
+    @ColumnInfo(defaultValue = "0")
+    val completedCount: Int = 0,
+    /** Thời gian nhắc trước hạn chót (phút): 30, 60 hoặc 120. Thêm ở DB 9. */
+    @ColumnInfo(defaultValue = "30")
+    val reminderLeadMinutes: Int = DEFAULT_REMINDER_LEAD_MINUTES
 ) {
+    val isFlexibleWeekly: Boolean
+        get() = taskMode == TaskMode.FLEXIBLE_WEEKLY && targetCount > 1
+
+    val remainingCount: Int
+        get() = (targetCount - completedCount).coerceAtLeast(0)
+
     fun getProofImageList(): List<String> {
         if (proofImageUrl.isBlank()) return emptyList()
         return proofImageUrl.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -51,10 +79,21 @@ data class Task(
 
     /**
      * Quá hạn khi nhiệm vụ có hạn chót (`deadlineTimestamp > 0`), đã qua thời điểm hạn chót,
-     * và vẫn chưa nộp báo cáo chờ duyệt / chưa hoàn thành.
+     * và vẫn chưa hoàn thành (hoặc chưa nộp lượt cuối cùng chờ duyệt).
      */
-    fun isOverdue(nowMillis: Long = System.currentTimeMillis()): Boolean =
-        deadlineTimestamp in 1 until nowMillis &&
-            status != TaskStatus.COMPLETED &&
-            status != TaskStatus.PENDING_APPROVAL
+    fun isOverdue(nowMillis: Long = System.currentTimeMillis()): Boolean {
+        if (deadlineTimestamp !in 1 until nowMillis) return false
+        if (status == TaskStatus.COMPLETED) return false
+        if (status == TaskStatus.PENDING_APPROVAL) {
+            return isFlexibleWeekly && (completedCount + 1 < targetCount)
+        }
+        return true
+    }
+
+    companion object {
+        const val DEFAULT_REMINDER_LEAD_MINUTES = 30
+        val ALLOWED_REMINDER_LEAD_MINUTES = listOf(30, 60, 120)
+        const val MIN_FLEXIBLE_TARGET_COUNT = 2
+        const val MAX_FLEXIBLE_TARGET_COUNT = 7
+    }
 }

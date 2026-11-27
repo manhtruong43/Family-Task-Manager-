@@ -41,6 +41,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -260,6 +261,46 @@ fun TaskDetailScreen(
                                 color = if (overdue) Color(0xFFF87171) else Color.White,
                                 fontWeight = if (overdue) FontWeight.Bold else FontWeight.Normal
                             )
+                            if (task.deadlineTimestamp > 0L) {
+                                val leadRes = when (task.reminderLeadMinutes) {
+                                    60 -> R.string.tk_reminder_1h
+                                    120 -> R.string.tk_reminder_2h
+                                    else -> R.string.tk_reminder_30m
+                                }
+                                Text(
+                                    text = stringResource(R.string.tk_detail_reminder_lead, stringResource(leadRes)),
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 13.sp
+                                )
+                            }
+                            if (task.isFlexibleWeekly) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = if (task.remainingCount == 0) {
+                                        stringResource(R.string.tk_detail_flex_done, task.completedCount, task.targetCount)
+                                    } else {
+                                        stringResource(
+                                            R.string.tk_detail_flex_progress,
+                                            task.completedCount,
+                                            task.targetCount,
+                                            task.remainingCount
+                                        )
+                                    },
+                                    color = Color(0xFF38BDF8),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = { (task.completedCount.toFloat() / task.targetCount.toFloat()).coerceIn(0f, 1f) },
+                                    color = if (task.remainingCount == 0) Color(0xFF4ADE80) else Color(0xFF38BDF8),
+                                    trackColor = Color.White.copy(alpha = 0.2f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(8.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                )
+                            }
 
                             Spacer(modifier = Modifier.height(16.dp))
 
@@ -364,7 +405,18 @@ fun TaskDetailScreen(
                                     .weight(1f)
                                     .height(50.dp)
                             ) {
-                                Text(stringResource(R.string.btn_approve_award), fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = if (task.isFlexibleWeekly) {
+                                        stringResource(
+                                            R.string.tk_btn_approve_round,
+                                            (task.completedCount + 1).coerceAtMost(task.targetCount),
+                                            task.targetCount
+                                        )
+                                    } else {
+                                        stringResource(R.string.btn_approve_award)
+                                    },
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
 
                             Spacer(modifier = Modifier.padding(horizontal = 8.dp))

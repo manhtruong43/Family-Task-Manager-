@@ -61,13 +61,13 @@ class RecurringMigrationTest {
         createFixture(6)
         assertTrue(context.getDatabasePath(databaseName).isFile)
         var db = openRoom()
-        assertEquals(8, db.openHelper.writableDatabase.version) // upgrade + Room validation
+        assertEquals(9, db.openHelper.writableDatabase.version) // upgrade + Room validation
 
         // Đóng/mở lại để kiểm tra cả identity/schema của DB đã được nâng cấp.
         db.close()
         room = null
         db = openRoom()
-        assertEquals(8, db.openHelper.writableDatabase.version)
+        assertEquals(9, db.openHelper.writableDatabase.version)
         val schedules = db.recurringScheduleDao().observeByFamily(family).first()
         assertEquals(2, schedules.size)
         assertTrue(schedules.all { it.assignmentMode == RecurringAssignmentMode.SHARED })
@@ -113,7 +113,7 @@ class RecurringMigrationTest {
     @Test fun migrate7to8_keepsData() = runBlocking<Unit> {
         createFixture(7)
         var db = openRoom()
-        assertEquals(8, db.openHelper.writableDatabase.version)
+        assertEquals(9, db.openHelper.writableDatabase.version)
         val schedules = db.recurringScheduleDao().getByFamilyOnce(family)
         val tasks = db.taskDao().getTasksByFamily(family).first().sortedBy { it.id }
         assertEquals(2, schedules.size)
@@ -135,6 +135,19 @@ class RecurringMigrationTest {
         assertEquals(tasks, db.taskDao().getTasksByFamily(family).first().sortedBy { it.id })
         db.familyDao().deleteFamily(family)
         assertNull(db.recurringScheduleDao().getCreationRequest(receipt.requestId))
+    }
+
+    @Test fun migrate8to9_keepsDataAndSetsFlexibleAndReminderDefaults() = runBlocking<Unit> {
+        createFixture(8)
+        val db = openRoom()
+        assertEquals(9, db.openHelper.writableDatabase.version)
+        val schedules = db.recurringScheduleDao().getByFamilyOnce(family)
+        val tasks = db.taskDao().getTasksByFamily(family).first()
+        assertEquals(2, schedules.size)
+        assertTrue(schedules.all { it.reminderLeadMinutes == 30 })
+        assertEquals(2, tasks.size)
+        assertTrue(tasks.all { it.taskMode == com.family.taskmanager.data.model.TaskMode.FIXED })
+        assertTrue(tasks.all { it.targetCount == 1 && it.completedCount == 0 && it.reminderLeadMinutes == 30 })
     }
 
     private fun createFixture(version: Int) {

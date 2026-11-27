@@ -749,4 +749,96 @@ class TaskRepositoryTest {
         assertEquals("Việc cũ 23:59:59 (đã đổi tên)", saved.title)
         assertEquals(legacyOverdue, saved.deadlineTimestamp)
     }
+
+    @Test
+    fun flexibleWeeklyTask_multiRoundApproval_awardsPointsEachRound_andCompletesOnFinalRound() = runBlocking<Unit> {
+        val futureEndOfWeek = System.currentTimeMillis() + 3 * 24 * 3_600_000L
+
+        // 1. Giao đích danh việc linh hoạt 3 lần/tuần, nhắc trước 1 giờ (60p)
+        val flexForBin = Task(
+            id = "t-flex-bin",
+            title = "Tập thể dục",
+            familyId = family,
+            assignedToUserId = bin.id,
+            assignedToUserName = bin.name,
+            createdByUserId = parent.id,
+            points = 10,
+            deadlineTimestamp = futureEndOfWeek,
+            taskMode = com.family.taskmanager.data.model.TaskMode.FLEXIBLE_WEEKLY,
+            targetCount = 3,
+            reminderLeadMinutes = 60
+        )
+        // Từ chối cấu hình sai (targetCount = 1 hoặc reminderLeadMinutes = 45)
+        assertEquals(TaskActionResult.INVALID_INPUT, repository.createTask(flexForBin.copy(id = "bad-1", targetCount = 1), parent))
+        assertEquals(TaskActionResult.INVALID_INPUT, repository.createTask(flexForBin.copy(id = "bad-2", reminderLeadMinutes = 45), parent))
+
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(flexForBin, parent))
+        assertEquals(60, fresh(flexForBin.id).reminderLeadMinutes)
+
+        // Lượt 1/3: nộp -> duyệt -> cộng 10 điểm, completedCount = 1, status tự quay về TODO
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(flexForBin.id, proof, "lượt 1", bin))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(flexForBin.id), parent))
+        val afterRound1 = fresh(flexForBin.id)
+        assertEquals(1, afterRound1.completedCount)
+        assertEquals(TaskStatus.TODO, afterRound1.status)
+        assertEquals("", afterRound1.proofImageUrl)
+        assertEquals(10, points(bin.id))
+
+        // Không được sửa đổi người nhận khi việc riêng đã có lượt hoàn thành
+        assertEquals(
+            TaskActionResult.INVALID_STATE,
+            repository.updateTask(
+                taskId = flexForBin.id,
+                title = flexForBin.title,
+                description = "",
+                assigneeId = na.id,
+                priority = TaskPriority.MEDIUM,
+                points = 10,
+                deadlineTimestamp = futureEndOfWeek,
+                actor = parent
+            )
+        )
+
+        // Lượt 2/3
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(flexForBin.id, proof, "lượt 2", bin))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(flexForBin.id), parent))
+        assertEquals(2, fresh(flexForBin.id).completedCount)
+        assertEquals(TaskStatus.TODO, fresh(flexForBin.id).status)
+        assertEquals(20, points(bin.id))
+
+        // Lượt 3/3 (lượt cuối): chuyển COMPLETED, tổng 30 điểm, không nộp được lượt 4
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(flexForBin.id, proof, "lượt 3", bin))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(flexForBin.id), parent))
+        assertEquals(3, fresh(flexForBin.id).completedCount)
+        assertEquals(TaskStatus.COMPLETED, fresh(flexForBin.id).status)
+        assertEquals(30, points(bin.id))
+        assertEquals(TaskActionResult.INVALID_STATE, repository.submitTaskProof(flexForBin.id, proof, "lượt 4", bin))
+
+        // 2. Việc linh hoạt giao chung cả nhà (2 lần/tuần): Na làm lượt 1, Bin làm lượt 2
+        val flexShared = Task(
+            id = "t-flex-shared",
+            title = "Rửa bát cả tuần",
+            familyId = family,
+            createdByUserId = parent.id,
+            points = 15,
+            deadlineTimestamp = futureEndOfWeek,
+            taskMode = com.family.taskmanager.data.model.TaskMode.FLEXIBLE_WEEKLY,
+            targetCount = 2,
+            reminderLeadMinutes = 120
+        )
+        assertEquals(TaskActionResult.SUCCESS, repository.createTask(flexShared, parent))
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(flexShared.id, proof, "Na rửa", na))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(flexShared.id), parent))
+        val afterSharedRound1 = fresh(flexShared.id)
+        assertEquals(1, afterSharedRound1.completedCount)
+        assertEquals(TaskStatus.TODO, afterSharedRound1.status)
+        assertEquals("", afterSharedRound1.assignedToUserId) // Trả lại cho cả nhà làm lượt 2
+        assertEquals(15, points(na.id))
+
+        assertEquals(TaskActionResult.SUCCESS, repository.submitTaskProof(flexShared.id, proof, "Bin rửa", bin))
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(fresh(flexShared.id), parent))
+        assertEquals(2, fresh(flexShared.id).completedCount)
+        assertEquals(TaskStatus.COMPLETED, fresh(flexShared.id).status)
+        assertEquals(45, points(bin.id))
+    }
 }

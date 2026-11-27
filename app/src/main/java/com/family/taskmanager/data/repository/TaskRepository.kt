@@ -11,6 +11,7 @@ import com.family.taskmanager.data.local.TaskReactionDao
 import com.family.taskmanager.data.local.UserDao
 import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.model.Task
+import com.family.taskmanager.data.model.TaskMode
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.TaskReaction
 import com.family.taskmanager.data.model.TaskStatus
@@ -114,7 +115,8 @@ class TaskRepository @Inject constructor(
             }
             val now = System.currentTimeMillis()
             if (task.title.isBlank() || task.points !in 0..MAX_TASK_POINTS ||
-                (task.deadlineTimestamp != 0L && task.deadlineTimestamp <= now)
+                (task.deadlineTimestamp != 0L && task.deadlineTimestamp <= now) ||
+                !isValidTaskModeConfig(task.taskMode, task.targetCount, task.reminderLeadMinutes)
             ) {
                 result = TaskActionResult.INVALID_INPUT
                 return@withTransaction null
@@ -142,7 +144,9 @@ class TaskRepository @Inject constructor(
                 createdByUserId = freshActor.id,
                 assignedToUserId = assignee?.id.orEmpty(),
                 assignedToUserName = assignee?.name.orEmpty(),
-                openToAll = assignee == null
+                openToAll = assignee == null,
+                completedCount = 0,
+                targetCount = if (task.taskMode == TaskMode.FLEXIBLE_WEEKLY) task.targetCount else 1
             )
             taskDao.insertTask(toInsert)
             pendingPush = insertNewTaskNotificationsInTx(toInsert, res)
@@ -171,7 +175,8 @@ class TaskRepository @Inject constructor(
             }
             val now = System.currentTimeMillis()
             if (template.title.isBlank() || template.points !in 0..MAX_TASK_POINTS || ids.isEmpty() ||
-                (template.deadlineTimestamp != 0L && template.deadlineTimestamp <= now)
+                (template.deadlineTimestamp != 0L && template.deadlineTimestamp <= now) ||
+                !isValidTaskModeConfig(template.taskMode, template.targetCount, template.reminderLeadMinutes)
             ) {
                 result = TaskActionResult.INVALID_INPUT
                 return@withTransaction null
@@ -362,31 +367,91 @@ class TaskRepository @Inject constructor(
         val res = ServiceLocale.localizedContext(context)
         var denied: TaskActionResult? = null
         var pendingPush: PendingPush? = null
+        var staleProofsToDelete: List<String> = emptyList()
         database.withTransaction<Task?> {
             val freshActor = userDao.getUserByIdSync(actor.id)
-            denied = reviewError(freshActor, taskDao.getTaskById(task.id), task)
+            val currentTask = taskDao.getTaskById(task.id)
+            denied = reviewError(freshActor, currentTask, task)
             if (denied != null) return@withTransaction null
-            // Chỉ chuyển sang COMPLETED khi đang PENDING_APPROVAL -> bấm 2 lần chỉ cộng điểm 1 lần
-            val rowsUpdated = taskDao.updateTaskStatusConditional(
-                taskId = task.id,
-                expectedStatus = TaskStatus.PENDING_APPROVAL,
-                newStatus = TaskStatus.COMPLETED
-            )
-            if (rowsUpdated <= 0) return@withTransaction null
 
-            val currentTask = taskDao.getTaskById(task.id) ?: return@withTransaction null
-            val targetUserId = currentTask.assignedToUserId
-            if (targetUserId.isNotEmpty() && currentTask.points > 0) {
-                userDao.addPoints(targetUserId, currentTask.points)
-                pendingPush = insertNotificationsInTx(
-                    listOf(targetUserId),
-                    res.getString(R.string.tk_noti_approved_title),
-                    res.getString(R.string.tk_noti_approved_message, currentTask.points, currentTask.title)
+            val verifiedTask = currentTask!!
+            val targetUserId = verifiedTask.assignedToUserId
+
+            if (!verifiedTask.isFlexibleWeekly) {
+                // Chỉ chuyển sang COMPLETED khi đang PENDING_APPROVAL -> bấm 2 lần chỉ cộng điểm 1 lần
+                val rowsUpdated = taskDao.updateTaskStatusConditional(
+                    taskId = task.id,
+                    expectedStatus = TaskStatus.PENDING_APPROVAL,
+                    newStatus = TaskStatus.COMPLETED
                 )
+                if (rowsUpdated <= 0) return@withTransaction null
+
+                if (targetUserId.isNotEmpty() && verifiedTask.points > 0) {
+                    userDao.addPoints(targetUserId, verifiedTask.points)
+                    pendingPush = insertNotificationsInTx(
+                        listOf(targetUserId),
+                        res.getString(R.string.tk_noti_approved_title),
+                        res.getString(R.string.tk_noti_approved_message, verifiedTask.points, verifiedTask.title)
+                    )
+                }
+                verifiedTask.copy(status = TaskStatus.COMPLETED)
+            } else {
+                // Việc linh hoạt trong tuần: duyệt từng lượt cho tới khi đạt đủ targetCount
+                val nextCompleted = (verifiedTask.completedCount + 1).coerceAtMost(verifiedTask.targetCount)
+                val isFinalRound = nextCompleted >= verifiedTask.targetCount
+                val updatedTask = if (isFinalRound) {
+                    verifiedTask.copy(
+                        status = TaskStatus.COMPLETED,
+                        completedCount = nextCompleted
+                    )
+                } else {
+                    staleProofsToDelete = verifiedTask.getProofImageList()
+                    verifiedTask.copy(
+                        status = TaskStatus.TODO,
+                        completedCount = nextCompleted,
+                        proofImageUrl = "",
+                        proofNote = "",
+                        assignedToUserId = if (verifiedTask.openToAll) "" else verifiedTask.assignedToUserId,
+                        assignedToUserName = if (verifiedTask.openToAll) "" else verifiedTask.assignedToUserName
+                    )
+                }
+                taskDao.updateTask(updatedTask)
+
+                if (targetUserId.isNotEmpty() && verifiedTask.points > 0) {
+                    userDao.addPoints(targetUserId, verifiedTask.points)
+                }
+                if (targetUserId.isNotEmpty()) {
+                    val remaining = (verifiedTask.targetCount - nextCompleted).coerceAtLeast(0)
+                    val title = res.getString(
+                        if (isFinalRound) R.string.tk_noti_approved_title else R.string.tk_noti_flex_progress_title
+                    )
+                    val message = if (isFinalRound) {
+                        res.getString(
+                            R.string.tk_noti_flex_completed_message,
+                            nextCompleted,
+                            verifiedTask.targetCount,
+                            verifiedTask.title,
+                            verifiedTask.points
+                        )
+                    } else {
+                        res.getString(
+                            R.string.tk_noti_flex_progress_message,
+                            nextCompleted,
+                            verifiedTask.targetCount,
+                            verifiedTask.title,
+                            verifiedTask.points,
+                            remaining
+                        )
+                    }
+                    pendingPush = insertNotificationsInTx(listOf(targetUserId), title, message)
+                }
+                updatedTask
             }
-            currentTask
         } ?: return denied ?: TaskActionResult.INVALID_STATE
 
+        if (staleProofsToDelete.isNotEmpty()) {
+            deleteProofFilesSafely(staleProofsToDelete)
+        }
         // Thông báo đẩy hệ thống là việc ngoài DB nên chỉ gửi sau khi transaction đã commit
         sendSystemPushSafely(pendingPush)
         return TaskActionResult.SUCCESS
@@ -454,7 +519,9 @@ class TaskRepository @Inject constructor(
         points: Int,
         deadlineTimestamp: Long,
         actor: User,
-        openToAll: Boolean? = null
+        openToAll: Boolean? = null,
+        targetCount: Int? = null,
+        reminderLeadMinutes: Int? = null
     ): TaskActionResult {
         val newAssigneeId = assigneeId.orEmpty()
 
@@ -478,11 +545,19 @@ class TaskRepository @Inject constructor(
                 newAssignee!!.role != UserRole.ADMIN || hasOtherAdminInFamily(freshActor.familyId, newAssignee!!.id)
                 )
             val now = System.currentTimeMillis()
+            val nextTargetCount = targetCount ?: task?.targetCount ?: 1
+            val nextLeadMinutes = reminderLeadMinutes ?: task?.reminderLeadMinutes ?: Task.DEFAULT_REMINDER_LEAD_MINUTES
             val error = when {
                 task == null -> TaskActionResult.NOT_FOUND
                 !TaskPermissions.canManage(freshActor, task) -> TaskActionResult.NOT_ALLOWED
                 task.status !in TaskPermissions.EDITABLE_STATUSES -> TaskActionResult.INVALID_STATE
+                task.completedCount > 0 && !task.openToAll && newAssigneeId != task.assignedToUserId ->
+                    TaskActionResult.INVALID_STATE
                 title.isBlank() || points !in 0..MAX_TASK_POINTS -> TaskActionResult.INVALID_INPUT
+                !isValidTaskModeConfig(task.taskMode, nextTargetCount, nextLeadMinutes) ->
+                    TaskActionResult.INVALID_INPUT
+                task.taskMode == TaskMode.FLEXIBLE_WEEKLY && nextTargetCount < task.completedCount ->
+                    TaskActionResult.INVALID_INPUT
                 deadlineTimestamp < 0L ||
                     (deadlineTimestamp != task.deadlineTimestamp && deadlineTimestamp in 1..now) ->
                     TaskActionResult.INVALID_INPUT
@@ -512,10 +587,17 @@ class TaskRepository @Inject constructor(
                 deadlineTimestamp = deadlineTimestamp,
                 assignedToUserId = newAssigneeId,
                 assignedToUserName = newAssignee?.name.orEmpty(),
-                status = if (assigneeChanged) TaskStatus.TODO else current.status,
+                status = when {
+                    current.taskMode == TaskMode.FLEXIBLE_WEEKLY && current.completedCount >= nextTargetCount ->
+                        TaskStatus.COMPLETED
+                    assigneeChanged -> TaskStatus.TODO
+                    else -> current.status
+                },
                 proofImageUrl = if (assigneeChanged) "" else current.proofImageUrl,
                 proofNote = if (assigneeChanged) "" else current.proofNote,
-                openToAll = nextOpenToAll
+                openToAll = nextOpenToAll,
+                targetCount = nextTargetCount,
+                reminderLeadMinutes = nextLeadMinutes
             )
             taskDao.updateTask(updated)
 
@@ -601,6 +683,18 @@ class TaskRepository @Inject constructor(
     }
 
     // ─────────────────────────── Tiện ích ───────────────────────────
+
+    private fun isValidTaskModeConfig(
+        taskMode: TaskMode,
+        targetCount: Int,
+        reminderLeadMinutes: Int
+    ): Boolean {
+        if (reminderLeadMinutes !in Task.ALLOWED_REMINDER_LEAD_MINUTES) return false
+        return when (taskMode) {
+            TaskMode.FIXED -> targetCount == 1
+            TaskMode.FLEXIBLE_WEEKLY -> targetCount in Task.MIN_FLEXIBLE_TARGET_COUNT..Task.MAX_FLEXIBLE_TARGET_COUNT
+        }
+    }
 
     private suspend fun hasOtherAdminInFamily(familyId: String, excludeUserId: String): Boolean =
         userDao.getUsersByRoleSync(familyId, UserRole.ADMIN).any { it.id != excludeUserId }

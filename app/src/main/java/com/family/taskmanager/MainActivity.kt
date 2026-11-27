@@ -116,7 +116,7 @@ fun FamilyTaskManagerApp() {
         composable(Screen.Home.route) {
             HomeScreen(
                 viewModel = homeViewModel,
-                onCreateTaskClick = { navController.navigate(Screen.CreateTask.route) },
+                onCreateTaskClick = { navController.navigate(Screen.CreateTask.createRoute()) },
                 onTaskClick = { taskId -> navController.navigate(Screen.TaskDetail.createRoute(taskId)) },
                 onRewardsClick = { navController.navigate(Screen.Rewards.route) },
                 onCalendarClick = { navController.navigate(Screen.Calendar.route) },
@@ -125,9 +125,17 @@ fun FamilyTaskManagerApp() {
             )
         }
 
-        composable(Screen.CreateTask.route) {
+        composable(
+            route = Screen.CreateTask.route,
+            arguments = listOf(navArgument("mode") {
+                type = NavType.StringType
+                defaultValue = "ONE_TIME"
+            })
+        ) { backStackEntry ->
+            val initialMode = backStackEntry.arguments?.getString("mode") ?: "ONE_TIME"
             CreateEditTaskScreen(
                 viewModel = homeViewModel,
+                initialCreationMode = initialMode,
                 onBack = { navController.popBackStack() }
             )
         }
@@ -171,7 +179,8 @@ fun FamilyTaskManagerApp() {
             CalendarScreen(
                 viewModel = homeViewModel,
                 onBack = { navController.popBackStack() },
-                onTaskClick = { taskId -> navController.navigate(Screen.TaskDetail.createRoute(taskId)) }
+                onTaskClick = { taskId -> navController.navigate(Screen.TaskDetail.createRoute(taskId)) },
+                onCreateRecurringClick = { navController.navigate(Screen.CreateTask.createRoute("RECURRING")) }
             )
         }
 

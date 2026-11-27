@@ -76,5 +76,27 @@ object AppMigrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+    /**
+     * 8 -> 9:
+     * - Thêm chế độ việc linh hoạt trong tuần (taskMode, targetCount, completedCount) cho bảng tasks.
+     * - Thêm thời gian nhắc trước hạn chót (reminderLeadMinutes: 30 / 60 / 120) cho tasks và recurring_schedules.
+     *   Toàn bộ dữ liệu cũ được giữ nguyên với giá trị mặc định tương thích ngược.
+     */
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE tasks ADD COLUMN taskMode TEXT NOT NULL DEFAULT 'FIXED'")
+            db.execSQL("ALTER TABLE tasks ADD COLUMN targetCount INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE tasks ADD COLUMN completedCount INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE tasks ADD COLUMN reminderLeadMinutes INTEGER NOT NULL DEFAULT 30")
+            db.execSQL("ALTER TABLE recurring_schedules ADD COLUMN reminderLeadMinutes INTEGER NOT NULL DEFAULT 30")
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(
+        MIGRATION_4_5,
+        MIGRATION_5_6,
+        MIGRATION_6_7,
+        MIGRATION_7_8,
+        MIGRATION_8_9
+    )
 }
