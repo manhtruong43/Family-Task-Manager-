@@ -50,7 +50,10 @@ data class RecurringSchedule(
     val lastGeneratedEpochDay: Long = -1L,
     /** Chỉ áp dụng khi assignedToUserId rỗng. Lịch cũ giữ chế độ một việc chung. */
     @ColumnInfo(defaultValue = "'SHARED'")
-    val assignmentMode: RecurringAssignmentMode = RecurringAssignmentMode.SHARED
+    val assignmentMode: RecurringAssignmentMode = RecurringAssignmentMode.SHARED,
+    /** Thời gian nhắc trước hạn chót (phút): 30, 60 hoặc 120. Thêm ở DB 9. */
+    @ColumnInfo(defaultValue = "30")
+    val reminderLeadMinutes: Int = Task.DEFAULT_REMINDER_LEAD_MINUTES
 ) {
     /** Lịch trình có rơi vào ngày [date] không (không xét bật/tắt). */
     fun occursOn(date: LocalDate): Boolean = when (repeatType) {
@@ -97,7 +100,8 @@ data class RecurringSchedule(
                 points = points,
                 deadlineTimestamp = dueAtMillis(date, zone),
                 createdAt = generatedAt,
-                openToAll = assignee == null
+                openToAll = assignee == null,
+                reminderLeadMinutes = reminderLeadMinutes
             )
         }
     }

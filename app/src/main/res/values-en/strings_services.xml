@@ -25,7 +25,9 @@
     <string name="cal_deadline_at">Due: %s</string>
     <string name="cal_overdue_at">Overdue since %s</string>
     <string name="cal_no_deadline_hint">%d task(s) have no deadline, so they are not shown on the calendar.</string>
-    <string name="cal_reminder_hint">⏰ The app reminds you 30 minutes before the deadline of unfinished tasks.</string>
+    <string name="cal_reminder_hint">⏰ The app reminds before deadlines (30m / 1h / 2h) and sends early reminders for weekly flexible tasks.</string>
+    <string name="cal_flex_section_title">🔁 Weekly flexible tasks (%1$d)</string>
+    <string name="cal_flex_progress">%1$d/%2$d times • Due %3$s</string>
     <string name="cal_status_todo">To do</string>
     <string name="cal_status_in_progress">Doing</string>
     <string name="cal_status_pending">Review</string>
@@ -53,6 +55,14 @@
 
     <string name="noti_reminder_title">⏰ Deadline coming up!</string>
     <string name="noti_reminder_message">\"%1$s\" is due at %2$s. Assigned to: %3$s.</string>
+    <string name="noti_reminder_lead_message">%1$s left until \"%2$s\" is due (%3$s). Assigned to: %4$s.</string>
+    <string name="noti_lead_30m">30 minutes</string>
+    <string name="noti_lead_1h">1 hour</string>
+    <string name="noti_lead_2h">2 hours</string>
+    <string name="noti_flex_reminder_title">🔁 Weekly flexible task reminder</string>
+    <string name="noti_flex_early_message">\"%1$s\" is at %2$d/%3$d times. %4$d more to go before %5$s — start early!</string>
+    <string name="noti_flex_final_day_message">Final day for \"%1$s\"! %2$d more time(s) left (%3$d/%4$d), finish before %5$s.</string>
+    <string name="noti_flex_last_call_message">%1$s left until \"%2$s\" ends! Currently at %3$d/%4$d times.</string>
     <string name="noti_overdue_title">⚠️ Task overdue</string>
     <string name="noti_overdue_message">\"%1$s\" is overdue (%2$s). Assigned to: %3$s.</string>
 

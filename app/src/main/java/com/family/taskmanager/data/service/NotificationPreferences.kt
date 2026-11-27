@@ -40,16 +40,20 @@ class NotificationPreferences @Inject constructor(
         }
 
     @Synchronized
-    fun wasReminded(taskId: String, deadline: Long): Boolean {
-        return remindedKeys().contains(reminderKey(taskId, deadline))
+    fun wasReminded(taskId: String, deadline: Long, stageKey: String = ""): Boolean {
+        return remindedKeys().contains(reminderKey(taskId, deadline, stageKey))
     }
 
     @Synchronized
-    fun markReminded(taskId: String, deadline: Long) {
+    fun markReminded(taskId: String, deadline: Long, stageKey: String = "") {
         val updated = remindedKeys()
-            .filterNot { it.startsWith("$taskId@") }
+            .filterNot { existing ->
+                // Giữ lại các stage khác của cùng task+deadline (cho việc linh hoạt nhắc đa mốc),
+                // chỉ xóa dấu cũ của các deadline khác của cùng taskId.
+                existing.startsWith("$taskId@") && !existing.startsWith("$taskId@$deadline")
+            }
             .toMutableSet()
-        updated.add(reminderKey(taskId, deadline))
+        updated.add(reminderKey(taskId, deadline, stageKey))
         prefs.edit().putStringSet(KEY_REMINDED, updated).apply()
     }
 
@@ -68,7 +72,8 @@ class NotificationPreferences @Inject constructor(
         return prefs.getStringSet(KEY_REMINDED, emptySet())?.toSet() ?: emptySet()
     }
 
-    private fun reminderKey(taskId: String, deadline: Long) = "$taskId@$deadline"
+    private fun reminderKey(taskId: String, deadline: Long, stageKey: String = ""): String =
+        if (stageKey.isBlank()) "$taskId@$deadline" else "$taskId@$deadline#$stageKey"
 
     companion object {
         const val PREFS_NAME = "family_task_notifications"

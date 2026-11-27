@@ -119,6 +119,9 @@
     <string name="tk_noti_proof_message">%1$s submitted proof for \"%2$s\". Please review it!</string>
     <string name="tk_noti_approved_title">✅ Task approved!</string>
     <string name="tk_noti_approved_message">Well done! You earned +%1$d⭐ points for \"%2$s\"</string>
+    <string name="tk_noti_flex_progress_title">✅ Round approved!</string>
+    <string name="tk_noti_flex_progress_message">Approved round %1$d/%2$d for \"%3$s\" (+%4$d⭐)! %5$d more to go before deadline.</string>
+    <string name="tk_noti_flex_completed_message">🎉 Awesome! You completed all %1$d/%2$d rounds of \"%3$s\" (+%4$d⭐)</string>
     <string name="tk_noti_rejected_title">❌ Task rejected</string>
     <string name="tk_noti_rejected_message">\"%1$s\" was not accepted, please redo it.</string>
     <string name="tk_form_points_error">Points must be between 0 and %1$d</string>
@@ -168,4 +171,23 @@
     <string name="fam_option_no_code">➕ No code yet (Create new code)</string>
     <string name="role_father_short">Father</string>
     <string name="role_mother_short">Mother</string>
+    <string name="tk_type_label">Task type:</string>
+    <string name="tk_type_one_time">One-time</string>
+    <string name="tk_type_recurring">Recurring</string>
+    <string name="tk_type_flexible_weekly">Weekly flexible</string>
+    <string name="tk_flexible_target_label">Required completions this week: %1$d times</string>
+    <string name="tk_flexible_target_hint">Can be done on any day as long as %1$d times are completed before deadline (+%2$d pts/round).</string>
+    <string name="tk_flexible_deadline_label">End-of-period deadline (default: end of week):</string>
+    <string name="tk_reminder_lead_label">Remind before deadline:</string>
+    <string name="tk_reminder_30m">30 min</string>
+    <string name="tk_reminder_1h">1 hour</string>
+    <string name="tk_reminder_2h">2 hours</string>
+    <string name="tk_reminder_flexible_hint">Flexible tasks automatically send early mid-week, pace, and final-day reminders.</string>
+    <string name="tk_btn_create_recurring">Create &amp; save schedule</string>
+    <string name="tk_flex_badge">🔁 %1$d/%2$d times</string>
+    <string name="tk_detail_flex_progress">📊 Weekly progress: %1$d / %2$d times (%3$d left)</string>
+    <string name="tk_detail_flex_done">📊 Weekly progress: %1$d / %2$d times (Completed)</string>
+    <string name="tk_detail_reminder_lead">🔔 Remind before: %1$s</string>
+    <string name="tk_btn_approve_round">Approve round %1$d/%2$d</string>
+    <string name="tk_recurring_assign_hint">Recurring schedules support assigning 1 member or whole family (anyone / each member).</string>
 </resources>

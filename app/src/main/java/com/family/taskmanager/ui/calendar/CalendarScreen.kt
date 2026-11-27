@@ -103,6 +103,7 @@ fun CalendarScreen(
     viewModel: HomeViewModel,
     onBack: () -> Unit,
     onTaskClick: (String) -> Unit = {},
+    onCreateRecurringClick: (() -> Unit)? = null,
     recurringViewModel: RecurringScheduleViewModel = hiltViewModel()
 ) {
     val tasks by viewModel.familyTasks.collectAsState()
@@ -385,6 +386,68 @@ fun CalendarScreen(
                     }
                 }
 
+                // ─── Việc linh hoạt trong tuần ───
+                val weeklyFlexibleTasks = weekTasks.filter { it.isFlexibleWeekly }
+                if (weeklyFlexibleTasks.isNotEmpty()) {
+                    item {
+                        GlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.cal_flex_section_title, weeklyFlexibleTasks.size),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                weeklyFlexibleTasks.forEach { flexTask ->
+                                    val dueLabel = remember(flexTask.deadlineTimestamp, locale) {
+                                        SimpleDateFormat("EEE HH:mm dd/MM", locale).format(Date(flexTask.deadlineTimestamp))
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color.White.copy(alpha = 0.08f))
+                                            .clickable { onTaskClick(flexTask.id) }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = flexTask.title,
+                                                color = Color.White,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 13.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = stringResource(
+                                                    R.string.cal_flex_progress,
+                                                    flexTask.completedCount,
+                                                    flexTask.targetCount,
+                                                    dueLabel
+                                                ),
+                                                color = if (isOverdue(flexTask, now)) AccentRed else AccentGold,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                        Text(
+                                            text = "${flexTask.completedCount}/${flexTask.targetCount}",
+                                            color = if (flexTask.remainingCount == 0) AccentGreen else Color(0xFF38BDF8),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ─── Header ngày được chọn ───
                 item {
                     val selectedDateText = remember(selectedDateMillis, locale) {
@@ -523,7 +586,15 @@ fun CalendarScreen(
             onToggleActive = { schedule, active ->
                 recurringViewModel.setActive(currentUser, schedule, active)
             },
-            onDelete = { schedule -> recurringViewModel.delete(currentUser, schedule) }
+            onDelete = { schedule -> recurringViewModel.delete(currentUser, schedule) },
+            onCreateNewSchedule = onCreateRecurringClick?.let { navigateToCreate ->
+                {
+                    if (!recurringBusy) {
+                        showSchedules = false
+                        navigateToCreate()
+                    }
+                }
+            }
         )
     }
 }
@@ -757,11 +828,8 @@ private fun statusVisual(status: TaskStatus): StatusVisual = when (status) {
     TaskStatus.REJECTED -> StatusVisual(Icons.Filled.Replay, AccentRed, R.string.cal_status_rejected)
 }
 
-/** Quá hạn = đã qua hạn chót mà vẫn chưa được duyệt hoàn thành / chưa nộp báo cáo. */
-private fun isOverdue(task: Task, now: Long): Boolean =
-    task.deadlineTimestamp in 1 until now &&
-            task.status != TaskStatus.COMPLETED &&
-            task.status != TaskStatus.PENDING_APPROVAL
+/** Quá hạn = đã qua hạn chót mà vẫn chưa được duyệt hoàn thành / chưa nộp báo cáo lượt cuối. */
+private fun isOverdue(task: Task, now: Long): Boolean = task.isOverdue(now)
 
 private fun startOfDay(millis: Long): Long {
     val cal = Calendar.getInstance().apply {

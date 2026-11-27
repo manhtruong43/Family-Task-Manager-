@@ -53,7 +53,8 @@ data class RecurringScheduleInput(
     val repeatType: RepeatType,
     val daysOfWeekMask: Int,
     val dueMinuteOfDay: Int,
-    val assignmentMode: RecurringAssignmentMode = RecurringAssignmentMode.SHARED
+    val assignmentMode: RecurringAssignmentMode = RecurringAssignmentMode.SHARED,
+    val reminderLeadMinutes: Int = Task.DEFAULT_REMINDER_LEAD_MINUTES
 )
 
 /**
@@ -180,7 +181,10 @@ class RecurringScheduleRepository @Inject constructor(
                 createdByUserId = existing?.createdByUserId ?: freshActor.id,
                 createdAt = existing?.createdAt ?: nowMillis(),
                 lastGeneratedEpochDay = existing?.lastGeneratedEpochDay ?: -1L,
-                assignmentMode = if (assignee == null) input.assignmentMode else RecurringAssignmentMode.SHARED
+                assignmentMode = if (assignee == null) input.assignmentMode else RecurringAssignmentMode.SHARED,
+                reminderLeadMinutes = input.reminderLeadMinutes
+                    .takeIf { it in Task.ALLOWED_REMINDER_LEAD_MINUTES }
+                    ?: Task.DEFAULT_REMINDER_LEAD_MINUTES
             )
             val proposed = draft.withCurrentManager(members)
             // Đồng thời kiểm tra kết quả sau sửa: không biến người đang sửa thành người nhận bị hạn chế.

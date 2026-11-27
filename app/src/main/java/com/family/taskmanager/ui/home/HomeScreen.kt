@@ -40,6 +40,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -931,6 +932,31 @@ fun GlassTaskItemCard(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 StatusBadge(status = task.status)
+            }
+
+            if (task.isFlexibleWeekly) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.tk_flex_badge, task.completedCount, task.targetCount),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentBlue
+                    )
+                    LinearProgressIndicator(
+                        progress = { (task.completedCount.toFloat() / task.targetCount.toFloat()).coerceIn(0f, 1f) },
+                        color = if (task.completedCount >= task.targetCount) AccentGreen else AccentBlue,
+                        trackColor = Color.White.copy(alpha = 0.2f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                    )
+                }
             }
 
             if (task.deadlineTimestamp > 0L) {

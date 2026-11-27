@@ -4,7 +4,9 @@ sealed class Screen(val route: String) {
     object Login : Screen("login")
     object FamilySetup : Screen("family_setup")
     object Home : Screen("home")
-    object CreateTask : Screen("create_task")
+    object CreateTask : Screen("create_task?mode={mode}") {
+        fun createRoute(mode: String = "ONE_TIME") = "create_task?mode=$mode"
+    }
     object EditTask : Screen("edit_task/{taskId}") {
         fun createRoute(taskId: String) = "edit_task/$taskId"
     }
