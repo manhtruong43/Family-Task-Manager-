@@ -12,6 +12,8 @@ import com.family.taskmanager.data.model.RecurringCreationRequest
 import com.family.taskmanager.data.model.TaskStatus
 import com.family.taskmanager.data.repository.NotificationRepository
 import com.family.taskmanager.data.repository.RecurringScheduleRepository
+import com.family.taskmanager.data.repository.TaskRepository
+import com.family.taskmanager.data.repository.TaskActionResult
 import com.family.taskmanager.data.service.NotificationPreferences
 import com.family.taskmanager.data.service.PushNotificationService
 import kotlinx.coroutines.flow.first
@@ -61,13 +63,13 @@ class RecurringMigrationTest {
         createFixture(6)
         assertTrue(context.getDatabasePath(databaseName).isFile)
         var db = openRoom()
-        assertEquals(9, db.openHelper.writableDatabase.version) // upgrade + Room validation
+        assertEquals(11, db.openHelper.writableDatabase.version) // upgrade + Room validation
 
         // Đóng/mở lại để kiểm tra cả identity/schema của DB đã được nâng cấp.
         db.close()
         room = null
         db = openRoom()
-        assertEquals(9, db.openHelper.writableDatabase.version)
+        assertEquals(11, db.openHelper.writableDatabase.version)
         val schedules = db.recurringScheduleDao().observeByFamily(family).first()
         assertEquals(2, schedules.size)
         assertTrue(schedules.all { it.assignmentMode == RecurringAssignmentMode.SHARED })
@@ -113,7 +115,7 @@ class RecurringMigrationTest {
     @Test fun migrate7to8_keepsData() = runBlocking<Unit> {
         createFixture(7)
         var db = openRoom()
-        assertEquals(9, db.openHelper.writableDatabase.version)
+        assertEquals(11, db.openHelper.writableDatabase.version)
         val schedules = db.recurringScheduleDao().getByFamilyOnce(family)
         val tasks = db.taskDao().getTasksByFamily(family).first().sortedBy { it.id }
         assertEquals(2, schedules.size)
@@ -140,7 +142,7 @@ class RecurringMigrationTest {
     @Test fun migrate8to9_keepsDataAndSetsFlexibleAndReminderDefaults() = runBlocking<Unit> {
         createFixture(8)
         val db = openRoom()
-        assertEquals(9, db.openHelper.writableDatabase.version)
+        assertEquals(11, db.openHelper.writableDatabase.version)
         val schedules = db.recurringScheduleDao().getByFamilyOnce(family)
         val tasks = db.taskDao().getTasksByFamily(family).first()
         assertEquals(2, schedules.size)
@@ -150,7 +152,94 @@ class RecurringMigrationTest {
         assertTrue(tasks.all { it.targetCount == 1 && it.completedCount == 0 && it.reminderLeadMinutes == 30 })
     }
 
-    private fun createFixture(version: Int) {
+    @Test fun migrate9to10_keepsExactFixedPointsAndMarksOlderFlexiblePointsAsEstimates() = runBlocking<Unit> {
+        createFixture(9) { old ->
+            old.execSQL("UPDATE tasks SET status = 'COMPLETED' WHERE openToAll = 1")
+            old.execSQL("UPDATE tasks SET taskMode = 'FLEXIBLE_WEEKLY', targetCount = 3, completedCount = 2, status = 'TODO' WHERE openToAll = 0")
+            old.execSQL("UPDATE users SET points = 51 WHERE id = 'na'")
+        }
+        var db = openRoom()
+        assertEquals(11, db.openHelper.writableDatabase.version) // production migration + Room validation
+        val tasks = db.taskDao().getTasksByFamily(family).first().sortedBy { it.id }
+        val awards = db.taskApprovalDao().getByFamily(family).sortedBy { it.taskId }
+        assertEquals(2, awards.size)
+        assertEquals(17, awards.single { !it.legacyEstimate }.points)
+        assertEquals(34, awards.single { it.legacyEstimate }.points)
+        assertEquals(2, awards.single { it.legacyEstimate }.approvedRounds)
+        assertEquals(2, tasks.single { !it.openToAll }.completedCount)
+        assertEquals(51, db.userDao().getUserByIdSync("na")!!.points)
+        val schedules = db.recurringScheduleDao().getByFamilyOnce(family)
+        db.close()
+        room = null
+        db = openRoom()
+        assertEquals(tasks, db.taskDao().getTasksByFamily(family).first().sortedBy { it.id })
+        assertEquals(awards, db.taskApprovalDao().getByFamily(family).sortedBy { it.taskId })
+        assertEquals(schedules, db.recurringScheduleDao().getByFamilyOnce(family))
+        assertEquals(51, db.userDao().getUserByIdSync("na")!!.points)
+    }
+
+    @Test fun migrate9to10_repairsUnfinishedSharedFlexibleGoalWithoutAwardingAgain() = runBlocking<Unit> {
+        createFixture(9) { old ->
+            old.execSQL("UPDATE tasks SET taskMode = 'FLEXIBLE_WEEKLY', targetCount = 3, completedCount = 1 WHERE openToAll = 1")
+            old.execSQL("UPDATE users SET points = 17 WHERE id = 'na'")
+        }
+        val db = openRoom()
+        val flexible = db.taskDao().getTasksByFamily(family).first().single { it.isFlexibleWeekly }
+        assertEquals(0, flexible.completedCount)
+        assertEquals("na", flexible.assignedToUserId)
+        assertFalse(flexible.openToAll)
+        // Giữ bài nộp đang chờ duyệt khi nâng cấp; chỉ tách lại bộ đếm theo từng người.
+        assertEquals(TaskStatus.PENDING_APPROVAL, flexible.status)
+        assertEquals("shared-proof.jpg", flexible.proofImageUrl)
+        assertEquals(17, db.taskApprovalDao().getByFamily(family).single().points)
+        assertTrue(db.taskApprovalDao().getByFamily(family).single().legacyEstimate)
+        assertEquals("", db.taskApprovalDao().getByFamily(family).single().userId) // Không gán tổng điểm chung cho người nộp cuối.
+        assertEquals(17, db.userDao().getUserByIdSync("na")!!.points)
+        assertTrue(db.recurringScheduleDao().getByFamilyOnce(family).all { it.lastGeneratedEpochDay == day.toEpochDay() })
+        val prefs = NotificationPreferences(context).also { it.setEnabled(false) }
+        val repository = TaskRepository(context, db, db.taskDao(), db.userDao(), db.notificationDao(),
+            db.taskReactionDao(), PushNotificationService(context, prefs))
+        val reviewer = db.userDao().getUserByIdSync("mom")!!
+        assertEquals(TaskActionResult.SUCCESS, repository.approveTask(flexible, reviewer))
+        assertEquals(1, db.taskDao().getTaskById(flexible.id)!!.completedCount)
+        assertEquals(34, db.userDao().getUserByIdSync("na")!!.points)
+        assertEquals(17, db.taskApprovalDao().getByFamily(family).single { !it.legacyEstimate }.points)
+        assertEquals(TaskActionResult.INVALID_STATE, repository.approveTask(flexible, reviewer))
+    }
+
+    @Test fun migrate10to11_preservesAwardsAndCreatesDurableReminderReceipts() = runBlocking<Unit> {
+        val taskId = "rec_legacy-na_" + day.toEpochDay()
+        createFixture(10) { old ->
+            old.row("task_approvals", "taskId" to taskId, "submissionRevision" to 1,
+                "familyId" to family, "userId" to "na", "points" to 17,
+                "taskCreatedAt" to 1000L, "approvedAt" to 2000L, "approvedRounds" to 1, "legacyEstimate" to 0)
+            old.execSQL("UPDATE tasks SET taskMode = 'FLEXIBLE_WEEKLY', targetCount = 3, assignedToUserId = '', " +
+                "assignedToUserName = '', status = 'TODO' WHERE openToAll = 1")
+        }
+        var db = openRoom()
+        assertEquals(11, db.openHelper.writableDatabase.version)
+        assertEquals(42, db.userDao().getUserByIdSync("na")!!.points)
+        val award = db.taskApprovalDao().getByFamily(family).single()
+        assertEquals("Na", award.workerName)
+        assertEquals(17, award.points)
+        val dedicated = db.taskDao().getTaskById(taskId)!!
+        assertEquals(0L, dedicated.reminderGeneration)
+        assertEquals(1L, db.taskDao().getTasksByFamily(family).first().single { it.assignedToUserId.isBlank() }.reminderGeneration)
+        val receipt = com.family.taskmanager.data.model.DeadlineReminderReceipt(
+            taskId, dedicated.deadlineTimestamp, 0, "fixed_30"
+        )
+        db.deadlineReminderDao().insert(listOf(receipt))
+        db.close()
+        room = null
+        db = openRoom()
+        assertEquals(listOf(receipt), db.deadlineReminderDao().getAll())
+        assertEquals(award, db.taskApprovalDao().getByFamily(family).single())
+        db.taskDao().deleteTask(dedicated)
+        assertTrue(db.deadlineReminderDao().getAll().isEmpty())
+        assertEquals(award, db.taskApprovalDao().getByFamily(family).single())
+    }
+
+    private fun createFixture(version: Int, modify: (SQLiteDatabase) -> Unit = {}) {
         val input = javaClass.classLoader!!.getResourceAsStream(
             "com.family.taskmanager.data.local.AppDatabase/" + version + ".json"
         ) ?: error("Missing exported schema fixture")
@@ -202,6 +291,7 @@ class RecurringMigrationTest {
             if (version >= 7) {
                 old.execSQL("UPDATE recurring_schedules SET assignmentMode = 'EACH_MEMBER' WHERE id = 'legacy-shared'")
             }
+            modify(old)
         }
     }
 

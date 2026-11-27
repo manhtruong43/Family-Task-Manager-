@@ -34,10 +34,26 @@ class DeadlineReminderReceiver : BroadcastReceiver() {
             .fromApplication(context.applicationContext, ReminderEntryPoint::class.java)
 
         when (intent.action) {
-            DeadlineReminderScheduler.ACTION_DEADLINE_REMINDER -> {
+            DeadlineReminderScheduler.ACTION_DEADLINE_REMINDER,
+            DeadlineReminderScheduler.ACTION_DEADLINE_RETRY -> {
                 val taskId = intent.getStringExtra(DeadlineReminderScheduler.EXTRA_TASK_ID) ?: return
                 val scheduler = entryPoint.deadlineReminderScheduler()
-                runAsync { scheduler.onReminderFired(taskId) }
+                val attempt = intent.getIntExtra(DeadlineReminderScheduler.EXTRA_RETRY_ATTEMPT, 0)
+                val alarmId = intent.getStringExtra(DeadlineReminderScheduler.EXTRA_ALARM_ID)
+                runAsync {
+                    if (alarmId != null) scheduler.onAlarmFired(alarmId)
+                    else scheduler.onReminderFired(taskId, attempt)
+                }
+            }
+
+            DeadlineReminderScheduler.ACTION_RECONCILE_RETRY -> {
+                val scheduler = entryPoint.deadlineReminderScheduler()
+                val attempt = intent.getIntExtra(DeadlineReminderScheduler.EXTRA_RETRY_ATTEMPT, 0)
+                runAsync { scheduler.onReconciliationRetry(attempt) }
+            }
+
+            DeadlineReminderScheduler.ACTION_RECOVERY_WATCHDOG -> {
+                runAsync { entryPoint.deadlineReminderScheduler().onRecoveryWakeup() }
             }
 
             RecurringTaskScheduler.ACTION_DAILY_RECURRING -> {

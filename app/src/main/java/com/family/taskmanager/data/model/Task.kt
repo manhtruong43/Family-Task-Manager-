@@ -62,9 +62,12 @@ data class Task(
     /** Số lần đã được Admin duyệt hoàn thành. Thêm ở DB 9. */
     @ColumnInfo(defaultValue = "0")
     val completedCount: Int = 0,
-    /** Thời gian nhắc trước hạn chót (phút): 30, 60 hoặc 120. Thêm ở DB 9. */
+    /** Dữ liệu cũ DB 9; scheduler dùng cấu hình chung từ NotificationPreferences thay cho giá trị này. */
     @ColumnInfo(defaultValue = "30")
-    val reminderLeadMinutes: Int = DEFAULT_REMINDER_LEAD_MINUTES
+    val reminderLeadMinutes: Int = DEFAULT_REMINDER_LEAD_MINUTES,
+    /** Tăng khi đổi người nhận hoặc trả mục tiêu về nhóm; không đổi khi duyệt thêm một lượt. */
+    @ColumnInfo(defaultValue = "0")
+    val reminderGeneration: Long = 0L
 ) {
     val isFlexibleWeekly: Boolean
         get() = taskMode == TaskMode.FLEXIBLE_WEEKLY && targetCount > 1

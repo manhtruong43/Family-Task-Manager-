@@ -11,6 +11,7 @@ import com.family.taskmanager.data.local.TaskReactionDao
 import com.family.taskmanager.data.local.UserDao
 import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.model.Task
+import com.family.taskmanager.data.model.TaskApproval
 import com.family.taskmanager.data.model.TaskMode
 import com.family.taskmanager.data.model.TaskPriority
 import com.family.taskmanager.data.model.TaskReaction
@@ -64,6 +65,9 @@ class TaskRepository @Inject constructor(
 
     fun getTasksByFamily(familyId: String): Flow<List<Task>> =
         taskDao.getTasksByFamily(familyId)
+
+    fun getApprovalsByFamily(familyId: String): Flow<List<TaskApproval>> =
+        database.taskApprovalDao().observeByFamily(familyId)
 
     fun getTasksByUser(userId: String): Flow<List<Task>> =
         taskDao.getTasksByUser(userId)
@@ -121,6 +125,16 @@ class TaskRepository @Inject constructor(
                 result = TaskActionResult.INVALID_INPUT
                 return@withTransaction null
             }
+            // ID đã dùng không được ghi đè hoặc tái sử dụng: lịch sử duyệt gắn với ID này.
+            if (taskDao.getTaskById(task.id) != null || database.taskApprovalDao().hasTaskHistory(task.id)) {
+                result = TaskActionResult.INVALID_INPUT
+                return@withTransaction null
+            }
+            // Mỗi mục tiêu linh hoạt thuộc riêng một người, không dùng chung bộ đếm.
+            if (task.taskMode == TaskMode.FLEXIBLE_WEEKLY && task.assignedToUserId.isBlank()) {
+                result = TaskActionResult.INVALID_INPUT
+                return@withTransaction null
+            }
             // Giao đích danh: người nhận phải cùng nhà, không phải chính người giao, và phải có người duyệt hợp lệ
             val admins = userDao.getUsersByRoleSync(freshActor.familyId, UserRole.ADMIN)
             val assignee = if (task.assignedToUserId.isNotEmpty()) {
@@ -146,6 +160,7 @@ class TaskRepository @Inject constructor(
                 assignedToUserName = assignee?.name.orEmpty(),
                 openToAll = assignee == null,
                 completedCount = 0,
+                reminderGeneration = 0L,
                 targetCount = if (task.taskMode == TaskMode.FLEXIBLE_WEEKLY) task.targetCount else 1
             )
             taskDao.insertTask(toInsert)
@@ -203,7 +218,13 @@ class TaskRepository @Inject constructor(
                     assignedToUserName = assignee.name,
                     createdByUserId = freshActor.id,
                     status = TaskStatus.TODO,
-                    openToAll = false
+                    openToAll = false,
+                    completedCount = 0,
+                    reminderGeneration = 0L,
+                    proofImageUrl = "",
+                    proofNote = "",
+                    submissionRevision = 0,
+                    targetCount = if (template.taskMode == TaskMode.FLEXIBLE_WEEKLY) template.targetCount else 1
                 )
             }
             tasks.forEach { taskItem ->
@@ -242,13 +263,17 @@ class TaskRepository @Inject constructor(
                     status = TaskStatus.IN_PROGRESS,
                     assignedToUserId = freshActor.id,
                     assignedToUserName = freshActor.name,
-                    openToAll = true
+                    reminderGeneration = task.reminderGeneration + 1,
+                    openToAll = task.taskMode != TaskMode.FLEXIBLE_WEEKLY
                 )
                 taskDao.updateTask(claimed)
                 TaskActionResult.SUCCESS
             } else {
-                val updated = taskDao.updateTaskStatusConditional(taskId, task.status, TaskStatus.IN_PROGRESS)
-                if (updated > 0) TaskActionResult.SUCCESS else TaskActionResult.INVALID_STATE
+                taskDao.updateTask(task.copy(
+                    status = TaskStatus.IN_PROGRESS,
+                    openToAll = task.taskMode != TaskMode.FLEXIBLE_WEEKLY && task.openToAll
+                ))
+                TaskActionResult.SUCCESS
             }
         }
 
@@ -266,17 +291,21 @@ class TaskRepository @Inject constructor(
             if (task.status != TaskStatus.IN_PROGRESS) {
                 return@withTransaction TaskActionResult.INVALID_STATE
             }
-            if (task.openToAll) {
+            if (task.openToAll && task.taskMode != TaskMode.FLEXIBLE_WEEKLY) {
                 val released = task.copy(
                     status = TaskStatus.TODO,
                     assignedToUserId = "",
-                    assignedToUserName = ""
+                    assignedToUserName = "",
+                    reminderGeneration = task.reminderGeneration + 1
                 )
                 taskDao.updateTask(released)
                 TaskActionResult.SUCCESS
             } else {
-                val updated = taskDao.updateTaskStatusConditional(taskId, TaskStatus.IN_PROGRESS, TaskStatus.TODO)
-                if (updated > 0) TaskActionResult.SUCCESS else TaskActionResult.INVALID_STATE
+                taskDao.updateTask(task.copy(
+                    status = TaskStatus.TODO,
+                    openToAll = false
+                ))
+                TaskActionResult.SUCCESS
             }
         }
 
@@ -326,8 +355,9 @@ class TaskRepository @Inject constructor(
                         proofNote = note.trim(),
                         assignedToUserId = if (isUnassigned) freshActor.id else task.assignedToUserId,
                         assignedToUserName = if (isUnassigned) freshActor.name else task.assignedToUserName,
-                        openToAll = task.openToAll || isUnassigned,
-                        submissionRevision = task.submissionRevision + 1
+                        openToAll = task.taskMode != TaskMode.FLEXIBLE_WEEKLY && (task.openToAll || isUnassigned),
+                        submissionRevision = task.submissionRevision + 1,
+                        reminderGeneration = if (isUnassigned) task.reminderGeneration + 1 else task.reminderGeneration
                     )
                     taskDao.updateTask(updated)
 
@@ -385,6 +415,7 @@ class TaskRepository @Inject constructor(
                     newStatus = TaskStatus.COMPLETED
                 )
                 if (rowsUpdated <= 0) return@withTransaction null
+                recordApprovalInTx(verifiedTask)
 
                 if (targetUserId.isNotEmpty() && verifiedTask.points > 0) {
                     userDao.addPoints(targetUserId, verifiedTask.points)
@@ -402,7 +433,8 @@ class TaskRepository @Inject constructor(
                 val updatedTask = if (isFinalRound) {
                     verifiedTask.copy(
                         status = TaskStatus.COMPLETED,
-                        completedCount = nextCompleted
+                        completedCount = nextCompleted,
+                        openToAll = false
                     )
                 } else {
                     staleProofsToDelete = verifiedTask.getProofImageList()
@@ -411,11 +443,11 @@ class TaskRepository @Inject constructor(
                         completedCount = nextCompleted,
                         proofImageUrl = "",
                         proofNote = "",
-                        assignedToUserId = if (verifiedTask.openToAll) "" else verifiedTask.assignedToUserId,
-                        assignedToUserName = if (verifiedTask.openToAll) "" else verifiedTask.assignedToUserName
+                        openToAll = false
                     )
                 }
                 taskDao.updateTask(updatedTask)
+                recordApprovalInTx(verifiedTask)
 
                 if (targetUserId.isNotEmpty() && verifiedTask.points > 0) {
                     userDao.addPoints(targetUserId, verifiedTask.points)
@@ -476,12 +508,14 @@ class TaskRepository @Inject constructor(
             if (rowsUpdated <= 0) return@withTransaction null
             val current = taskDao.getTaskById(task.id) ?: return@withTransaction null
             val submitterId = current.assignedToUserId
-            val rejectedTask = if (current.openToAll) {
-                val released = current.copy(assignedToUserId = "", assignedToUserName = "")
+            val rejectedTask = if (current.openToAll && current.taskMode != TaskMode.FLEXIBLE_WEEKLY) {
+                val released = current.copy(assignedToUserId = "", assignedToUserName = "",
+                    reminderGeneration = current.reminderGeneration + 1)
                 taskDao.updateTask(released)
                 released
             } else {
-                current
+                current.copy(openToAll = false)
+                    .also { taskDao.updateTask(it) }
             }
             if (submitterId.isNotEmpty()) {
                 pendingPush = insertNotificationsInTx(
@@ -551,6 +585,8 @@ class TaskRepository @Inject constructor(
                 task == null -> TaskActionResult.NOT_FOUND
                 !TaskPermissions.canManage(freshActor, task) -> TaskActionResult.NOT_ALLOWED
                 task.status !in TaskPermissions.EDITABLE_STATUSES -> TaskActionResult.INVALID_STATE
+            task.taskMode == TaskMode.FLEXIBLE_WEEKLY && newAssigneeId.isBlank() ->
+                TaskActionResult.INVALID_INPUT
                 task.completedCount > 0 && !task.openToAll && newAssigneeId != task.assignedToUserId ->
                     TaskActionResult.INVALID_STATE
                 title.isBlank() || points !in 0..MAX_TASK_POINTS -> TaskActionResult.INVALID_INPUT
@@ -595,9 +631,10 @@ class TaskRepository @Inject constructor(
                 },
                 proofImageUrl = if (assigneeChanged) "" else current.proofImageUrl,
                 proofNote = if (assigneeChanged) "" else current.proofNote,
-                openToAll = nextOpenToAll,
+                openToAll = if (current.taskMode == TaskMode.FLEXIBLE_WEEKLY) false else nextOpenToAll,
                 targetCount = nextTargetCount,
-                reminderLeadMinutes = nextLeadMinutes
+                reminderLeadMinutes = nextLeadMinutes,
+                reminderGeneration = if (assigneeChanged) current.reminderGeneration + 1 else current.reminderGeneration
             )
             taskDao.updateTask(updated)
 
@@ -696,6 +733,20 @@ class TaskRepository @Inject constructor(
         }
     }
 
+    /** Chỉ gọi sau khi cập nhật trạng thái thành công, bên trong transaction duyệt. */
+    private suspend fun recordApprovalInTx(task: Task) {
+        database.taskApprovalDao().insert(TaskApproval(
+            taskId = task.id,
+            submissionRevision = task.submissionRevision,
+            familyId = task.familyId,
+            userId = task.assignedToUserId,
+            points = task.points,
+            taskCreatedAt = task.createdAt,
+            approvedAt = System.currentTimeMillis(),
+            workerName = userDao.getUserByIdSync(task.assignedToUserId)?.name.orEmpty()
+        ))
+    }
+
     private suspend fun hasOtherAdminInFamily(familyId: String, excludeUserId: String): Boolean =
         userDao.getUsersByRoleSync(familyId, UserRole.ADMIN).any { it.id != excludeUserId }
 
@@ -711,6 +762,8 @@ class TaskRepository @Inject constructor(
         task == null -> TaskActionResult.NOT_FOUND
         !TaskPermissions.canReview(actor, task) -> TaskActionResult.NOT_ALLOWED
         task.status != TaskStatus.PENDING_APPROVAL -> TaskActionResult.INVALID_STATE
+        task.assignedToUserId.isBlank() -> TaskActionResult.INVALID_STATE
+        task.isFlexibleWeekly && task.completedCount >= task.targetCount -> TaskActionResult.INVALID_STATE
         task.submissionRevision <= 0 || screenTask.submissionRevision != task.submissionRevision ->
             TaskActionResult.INVALID_STATE
         screenTask.assignedToUserId != task.assignedToUserId ->

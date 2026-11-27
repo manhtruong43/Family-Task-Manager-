@@ -15,6 +15,10 @@ import com.family.taskmanager.data.service.PushNotificationService
 import com.family.taskmanager.ui.family.messageRes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -73,6 +77,18 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val notificationsEnabled: StateFlow<Boolean> = notificationPreferences.enabled
+    val reminderLeadMinutes: StateFlow<Int> = notificationPreferences.reminderLeadMinutes
+
+    private val reminderSettingMutex = Mutex()
+
+    fun setReminderLeadMinutes(minutes: Int) {
+        viewModelScope.launch {
+            reminderSettingMutex.withLock {
+                val saved = withContext(Dispatchers.IO) { notificationPreferences.setReminderLeadMinutes(minutes) }
+                if (!saved) emit(R.string.set_msg_reminder_save_failed)
+            }
+        }
+    }
 
     private val _messages = MutableSharedFlow<Int>(extraBufferCapacity = 4)
     val messages: SharedFlow<Int> = _messages.asSharedFlow()
@@ -113,7 +129,11 @@ class SettingsViewModel @Inject constructor(
     // ─────────────── Thông báo ───────────────
 
     fun setNotificationsEnabled(enabled: Boolean) {
-        notificationPreferences.setEnabled(enabled)
+        viewModelScope.launch {
+            reminderSettingMutex.withLock {
+                withContext(Dispatchers.IO) { notificationPreferences.setEnabled(enabled) }
+            }
+        }
     }
 
     fun canPostNotifications(): Boolean = pushNotificationService.canPostNotifications()

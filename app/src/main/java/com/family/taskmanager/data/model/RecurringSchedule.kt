@@ -51,7 +51,7 @@ data class RecurringSchedule(
     /** Chỉ áp dụng khi assignedToUserId rỗng. Lịch cũ giữ chế độ một việc chung. */
     @ColumnInfo(defaultValue = "'SHARED'")
     val assignmentMode: RecurringAssignmentMode = RecurringAssignmentMode.SHARED,
-    /** Thời gian nhắc trước hạn chót (phút): 30, 60 hoặc 120. Thêm ở DB 9. */
+    /** Dữ liệu cũ DB 9; scheduler dùng cấu hình chung từ NotificationPreferences thay cho giá trị này. */
     @ColumnInfo(defaultValue = "30")
     val reminderLeadMinutes: Int = Task.DEFAULT_REMINDER_LEAD_MINUTES
 ) {

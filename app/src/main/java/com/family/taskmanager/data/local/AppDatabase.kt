@@ -2,6 +2,7 @@ package com.family.taskmanager.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import com.family.taskmanager.data.model.DeadlineReminderReceipt
 import com.family.taskmanager.data.model.FamilyGroup
 import com.family.taskmanager.data.model.NotificationItem
 import com.family.taskmanager.data.model.RecurringSchedule
@@ -9,6 +10,7 @@ import com.family.taskmanager.data.model.RecurringCreationRequest
 import com.family.taskmanager.data.model.Reward
 import com.family.taskmanager.data.model.RewardRedemption
 import com.family.taskmanager.data.model.Task
+import com.family.taskmanager.data.model.TaskApproval
 import com.family.taskmanager.data.model.TaskReaction
 import com.family.taskmanager.data.model.User
 
@@ -22,9 +24,11 @@ import com.family.taskmanager.data.model.User
         NotificationItem::class,
         TaskReaction::class,
         RecurringSchedule::class, // Lịch trình cố định (Chức năng 6 - Dũng)
-        RecurringCreationRequest::class
+        RecurringCreationRequest::class,
+        TaskApproval::class,
+        DeadlineReminderReceipt::class
     ],
-    version = 9, // 8->9: việc linh hoạt trong tuần (taskMode/targetCount/completedCount) & nhắc trước 30/60/120p
+    version = 11, // 10->11: biên nhận nhắc việc, lần giao việc và tên người nhận điểm
     // Xuất schema ra app/schemas/ (cấu hình trong app/build.gradle.kts) để viết và kiểm tra migration
     exportSchema = true
 )
@@ -34,6 +38,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun rewardDao(): RewardDao
     abstract fun notificationDao(): NotificationDao
+    abstract fun deadlineReminderDao(): DeadlineReminderDao
+    abstract fun taskApprovalDao(): TaskApprovalDao
     abstract fun taskReactionDao(): TaskReactionDao
     abstract fun recurringScheduleDao(): RecurringScheduleDao
 }

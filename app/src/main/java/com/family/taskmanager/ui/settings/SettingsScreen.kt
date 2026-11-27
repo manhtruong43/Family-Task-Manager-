@@ -48,6 +48,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -111,6 +112,7 @@ fun SettingsScreen(
     val family by settingsViewModel.family.collectAsState()
     val members by settingsViewModel.members.collectAsState()
     val notificationsEnabled by settingsViewModel.notificationsEnabled.collectAsState()
+    val reminderLeadMinutes by settingsViewModel.reminderLeadMinutes.collectAsState()
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -403,6 +405,26 @@ fun SettingsScreen(
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(stringResource(R.string.set_reminder_lead_title), color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(
+                            stringResource(R.string.set_reminder_lead_desc),
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 11.sp
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(
+                                30 to R.string.tk_reminder_30m,
+                                60 to R.string.tk_reminder_1h,
+                                120 to R.string.tk_reminder_2h
+                            ).forEach { (minutes, label) ->
+                                FilterChip(
+                                    selected = reminderLeadMinutes == minutes,
+                                    onClick = { settingsViewModel.setReminderLeadMinutes(minutes) },
+                                    label = { Text(stringResource(label)) }
+                                )
+                            }
                         }
                     }
                 }
